@@ -105,6 +105,16 @@ class IRCamApp(tk.Tk):
         self.display_resolution_dropdown["values"] = list(display_resolutions.keys())
         self.display_resolution_dropdown.grid(row=2, column=1)
         
+        #display interpolation chooser
+        self.display_interpolation_label = tk.Label(self, text="Display Interpolation")
+        self.display_interpolation_label.grid(row=3, column=0)
+        self.display_interpolation_var = tk.StringVar()
+        self.display_interpolation_var.set("Cubic")
+        self.display_interpolation_dropdown = ttk.Combobox(self, textvariable=self.display_interpolation_var)
+        self.display_interpolation_dropdown["values"] = list(display_interpolations.keys())
+        self.display_interpolation_dropdown.grid(row=3, column=1)
+        
+        
         self.update_serial_ports()
         
     def update_serial_ports(self):
@@ -177,23 +187,19 @@ class IRCamApp(tk.Tk):
         min_temp = np.min(data)
         max_temp = np.max(data)
         
-        display_min_range = min_temp - self.display_range_headroom
-        display_max_range = max_temp + self.display_range_headroom
 
-        if self.display_room_temp_in_range:
-            display_min_range = min(display_min_range, 20)
-            display_max_range = max(display_max_range, 20)
-        
-        #find index of min and max temp
-        min_index = np.unravel_index(np.argmin(data), data.shape)
-        max_index = np.unravel_index(np.argmax(data), data.shape)
+        display_min_range = self.display_min_temp_manual
+        display_max_range = self.display_max_temp_manual
 
-        #swapaxis on the index
-        min_index = min_index[::-1]
-        max_index = max_index[::-1]
-        
-        min_pixel = self.input_pixel_to_output_pixel(*min_index)
-        max_pixel = self.input_pixel_to_output_pixel(*max_index)
+        if self.display_min_temp_autorange:
+            display_min_range = min_temp - self.display_range_headroom
+            if self.display_room_temp_in_range:
+                display_min_range = min(display_min_range, 20)
+
+        if self.display_max_temp_autorange:
+            display_max_range = max_temp + self.display_range_headroom
+            if self.display_room_temp_in_range:
+                display_max_range = max(display_max_range, 20)
         
         range = display_max_range - display_min_range
         normalized = (data - display_min_range) / range
@@ -208,7 +214,20 @@ class IRCamApp(tk.Tk):
         #rescale the image to self.display_resolution_var
         display_resolution_var = self.display_resolution_var.get()
         self.display_resolution = display_resolutions[display_resolution_var]
-        rgb = cv.resize(rgb, self.display_resolution, interpolation=cv.INTER_CUBIC)
+        display_interpolation = display_interpolations[self.display_interpolation_var.get()]
+        rgb = cv.resize(rgb, self.display_resolution, interpolation=display_interpolation)
+
+        #find index of min and max temp
+        min_index = np.unravel_index(np.argmin(data), data.shape)
+        max_index = np.unravel_index(np.argmax(data), data.shape)
+
+        #swapaxis on the index
+        min_index = min_index[::-1]
+        max_index = max_index[::-1]
+        
+        min_pixel = self.input_pixel_to_output_pixel(*min_index)
+        max_pixel = self.input_pixel_to_output_pixel(*max_index)
+
 
         #print min and max temp on the image
         cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
