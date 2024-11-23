@@ -66,8 +66,6 @@ class IRCamApp(tk.Tk):
         self.overlay = True
         self.display_room_temp_in_range = False
         self.display_range_headroom = 2
-        self.display_max_temp_autorange = True
-        self.display_min_temp_autorange = True
         self.display_max_temp_manual = 40.0
         self.display_min_temp_manual = 10.0
         self.display_resolution = display_resolutions["640x480"]
@@ -114,6 +112,16 @@ class IRCamApp(tk.Tk):
         self.display_interpolation_dropdown["values"] = list(display_interpolations.keys())
         self.display_interpolation_dropdown.grid(row=3, column=1)
         
+        #display autorange checkboxes for min and max
+        self.display_min_temp_autorange_var = tk.BooleanVar()
+        self.display_min_temp_autorange_checkbox = tk.Checkbutton(self, text="Min Temp Auto", variable=self.display_min_temp_autorange_var)
+        self.display_min_temp_autorange_checkbox.grid(row=4, column=0)
+        self.display_min_temp_autorange_var.set(True)
+        
+        self.display_max_temp_autorange_var = tk.BooleanVar()
+        self.display_max_temp_autorange_checkbox = tk.Checkbutton(self, text="Max Temp Auto", variable=self.display_max_temp_autorange_var)
+        self.display_max_temp_autorange_checkbox.grid(row=4, column=1)
+        self.display_max_temp_autorange_var.set(True)
         
         self.update_serial_ports()
         
@@ -191,12 +199,12 @@ class IRCamApp(tk.Tk):
         display_min_range = self.display_min_temp_manual
         display_max_range = self.display_max_temp_manual
 
-        if self.display_min_temp_autorange:
+        if self.display_min_temp_autorange_var.get():
             display_min_range = min_temp - self.display_range_headroom
             if self.display_room_temp_in_range:
                 display_min_range = min(display_min_range, 20)
 
-        if self.display_max_temp_autorange:
+        if self.display_min_temp_autorange_var.get():
             display_max_range = max_temp + self.display_range_headroom
             if self.display_room_temp_in_range:
                 display_max_range = max(display_max_range, 20)
