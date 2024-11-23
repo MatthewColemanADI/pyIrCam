@@ -19,6 +19,7 @@ import numpy as np
 import cv2 as cv
 import configparser
 import os
+from scipy import stats as scitats
 
 
 color_maps = {
@@ -64,8 +65,6 @@ class IRCamApp(tk.Tk):
         self.port = port
         self.color_map_default = color_map
         self.overlay = True
-        self.display_room_temp_in_range = False
-        self.display_range_headroom = 2
         self.display_resolution = display_resolutions["640x480"]
         self.create_widgets()
         
@@ -131,6 +130,16 @@ class IRCamApp(tk.Tk):
         self.display_max_temp_manual_var.set(40)
         self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var)
         self.display_max_temp_manual_entry.grid(row=5, column=1)
+        
+        #display range headroom
+        self.display_range_headroom_label = tk.Label(self, text="Display Range Headroom")
+        self.display_range_headroom_label.grid(row=6, column=0)
+        self.display_range_headroom_var = tk.DoubleVar()
+        self.display_range_headroom_var.set(1)
+        
+        self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var)
+        self.display_range_headroom_entry.grid(row=6, column=1)
+        
                 
         self.update_serial_ports()
         
@@ -198,25 +207,26 @@ class IRCamApp(tk.Tk):
             print("Error reshaping data: %s" % e)
             return
         
+        #update display resolution
+        display_resolution_var = self.display_resolution_var.get()
+        self.display_resolution = display_resolutions[display_resolution_var]
+                
         #reverse the x axis
         data = np.fliplr(data)
                 
         min_temp = np.min(data)
         max_temp = np.max(data)
         
-
         display_min_range = self.display_min_temp_manual_var.get()
         display_max_range = self.display_max_temp_manual_var.get()
 
+        display_range_headroom = self.display_range_headroom_var.get()
+
         if self.display_min_temp_autorange_var.get():
-            display_min_range = min_temp - self.display_range_headroom
-            if self.display_room_temp_in_range:
-                display_min_range = min(display_min_range, 20)
+            display_min_range = min_temp - display_range_headroom
 
         if self.display_max_temp_autorange_var.get():
-            display_max_range = max_temp + self.display_range_headroom
-            if self.display_room_temp_in_range:
-                display_max_range = max(display_max_range, 20)
+            display_max_range = max_temp + display_range_headroom
         
         range = display_max_range - display_min_range
         normalized = (data - display_min_range) / range
@@ -232,8 +242,6 @@ class IRCamApp(tk.Tk):
         rgb = cv.applyColorMap(cv_normalized, color_map)
         
         #rescale the image to self.display_resolution_var
-        display_resolution_var = self.display_resolution_var.get()
-        self.display_resolution = display_resolutions[display_resolution_var]
         display_interpolation = display_interpolations[self.display_interpolation_var.get()]
         rgb = cv.resize(rgb, self.display_resolution, interpolation=display_interpolation)
 
@@ -245,8 +253,8 @@ class IRCamApp(tk.Tk):
         min_index = min_index[::-1]
         max_index = max_index[::-1]
         
-        min_pixel = self.input_pixel_to_output_pixel(*min_index)
-        max_pixel = self.input_pixel_to_output_pixel(*max_index)
+        min_pixel_position = self.input_pixel_to_output_pixel(*min_index)
+        max_pixel_position = self.input_pixel_to_output_pixel(*max_index)
 
 
         #print min and max temp on the image
@@ -264,9 +272,26 @@ class IRCamApp(tk.Tk):
             # cv.putText(rgb, "Min px: %d, %d" % min_pixel, (10, 100), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
             # cv.putText(rgb, "Max px: %d, %d" % max_pixel, (10, 120), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
             
+            # hsv = cv.cvtColor(rgb, cv.COLOR_BGR2HSV)
+                        
+            # #get the pixel value of the display for min and max temp
+            # hsv_max_temp = hsv[max_pixel_position[1], max_pixel_position[0]]
+            # hsv_min_temp = hsv[min_pixel_position[1], min_pixel_position[0]]
+            
+            # #get hue angular distance from hsv to min and max.
+            # #wrap around the hue value with maximum 180
+            # hue = hsv[:,:,0]
+            
+            # hue_angulardist_max = hue - hsv_max_temp[0]
+            # hue_angulardist_min = np.abs(hsv[:,:,0] - hsv_min_temp[0])
+            
+            # #find the circular mean of the hue values
+            # rect_area_hsv_average[:1] = scitats.circmean(rectangle_sample[:,:,0].flatten(), high=180, low=0)            
+            
             #draw min and max pixel circles on the image
-            cv.circle(rgb, min_pixel, 10, (0, 0, 0), 1)
-            cv.circle(rgb, max_pixel, 10, (255, 255, 255), 1)
+            circle_size = int(self.display_resolution[0]*0.01)
+            cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
+            cv.circle(rgb, max_pixel_position, circle_size, (255, 255, 255), 2)
 
         #Use cv to show the image
         cv.imshow("IR Camera", rgb)
@@ -294,12 +319,18 @@ class IRCamApp(tk.Tk):
         elif key == ord("o"):
             #enable/disable the information overlay
             self.overlay = not self.overlay
-        elif key == ord("r"):
-            #cycle through the display resolutions
+        elif key == ord("d"):
+            #cycle through the display sizes/resolutions
             res_keys = list(display_resolutions.keys())
             res_index = res_keys.index("%dx%d" % tuple(self.display_resolution))
             res_index = (res_index + 1) % len(res_keys)
             self.display_resolution_var.set(res_keys[res_index])
+        elif key == ord("m"):
+            #cycle through the color maps
+            cmap_keys = list(color_maps.keys())
+            cmap_index = cmap_keys.index(self.color_map_var.get())
+            cmap_index = (cmap_index + 1) % len(cmap_keys)
+            self.color_map_var.set(cmap_keys[cmap_index])
             
             
 
