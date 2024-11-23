@@ -66,8 +66,6 @@ class IRCamApp(tk.Tk):
         self.overlay = True
         self.display_room_temp_in_range = False
         self.display_range_headroom = 2
-        self.display_max_temp_manual = 40.0
-        self.display_min_temp_manual = 10.0
         self.display_resolution = display_resolutions["640x480"]
         self.create_widgets()
         
@@ -123,6 +121,17 @@ class IRCamApp(tk.Tk):
         self.display_max_temp_autorange_checkbox.grid(row=4, column=1)
         self.display_max_temp_autorange_var.set(True)
         
+        #display manual range values
+        self.display_min_temp_manual_var = tk.DoubleVar()
+        self.display_min_temp_manual_var.set(10)
+        self.display_min_temp_manual_entry = tk.Entry(self, textvariable=self.display_min_temp_manual_var)
+        self.display_min_temp_manual_entry.grid(row=5, column=0)
+        
+        self.display_max_temp_manual_var = tk.DoubleVar()
+        self.display_max_temp_manual_var.set(40)
+        self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var)
+        self.display_max_temp_manual_entry.grid(row=5, column=1)
+                
         self.update_serial_ports()
         
     def update_serial_ports(self):
@@ -196,21 +205,24 @@ class IRCamApp(tk.Tk):
         max_temp = np.max(data)
         
 
-        display_min_range = self.display_min_temp_manual
-        display_max_range = self.display_max_temp_manual
+        display_min_range = self.display_min_temp_manual_var.get()
+        display_max_range = self.display_max_temp_manual_var.get()
 
         if self.display_min_temp_autorange_var.get():
             display_min_range = min_temp - self.display_range_headroom
             if self.display_room_temp_in_range:
                 display_min_range = min(display_min_range, 20)
 
-        if self.display_min_temp_autorange_var.get():
+        if self.display_max_temp_autorange_var.get():
             display_max_range = max_temp + self.display_range_headroom
             if self.display_room_temp_in_range:
                 display_max_range = max(display_max_range, 20)
         
         range = display_max_range - display_min_range
         normalized = (data - display_min_range) / range
+        
+        #limit the range to 0-1
+        normalized = np.clip(normalized, 0, 1)
         
         #convert array to CV_8UC1
         cv_normalized = np.array(normalized * 255, dtype=np.uint8)
