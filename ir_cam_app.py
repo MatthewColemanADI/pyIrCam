@@ -39,8 +39,6 @@ color_maps = {
     "Plasma": cv.COLORMAP_PLASMA,
 }
 
-#[800, 600], [1024, 768], [1280, 1024], [1920, 1080]
-
 display_resolutions = { "480x320":[480,320], 
                         "640x480":[640,480],
                         "800x600":[800,600],
@@ -48,6 +46,15 @@ display_resolutions = { "480x320":[480,320],
                         "1280x1024":[1280,1024],
                         "1920x1080":[1920,1080]
 }
+
+display_interpolations = {
+    "Nearest": cv.INTER_NEAREST,
+    "Linear": cv.INTER_LINEAR,
+    "Cubic": cv.INTER_CUBIC,
+    "Area": cv.INTER_AREA,
+    "Lanczos4": cv.INTER_LANCZOS4    
+}
+
 class IRCamApp(tk.Tk):
     def __init__(self, port="", color_map="jet", *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
@@ -57,6 +64,12 @@ class IRCamApp(tk.Tk):
         self.port = port
         self.color_map_default = color_map
         self.overlay = True
+        self.display_room_temp_in_range = False
+        self.display_range_headroom = 2
+        self.display_max_temp_autorange = True
+        self.display_min_temp_autorange = True
+        self.display_max_temp_manual = 40.0
+        self.display_min_temp_manual = 10.0
         self.display_resolution = display_resolutions["640x480"]
         self.create_widgets()
         
@@ -82,6 +95,15 @@ class IRCamApp(tk.Tk):
         self.color_map_dropdown = ttk.Combobox(self, textvariable=self.color_map_var)
         self.color_map_dropdown["values"] = list(color_maps.keys())
         self.color_map_dropdown.grid(row=1, column=1)
+        
+        #display resolution chooser
+        self.display_resolution_label = tk.Label(self, text="Display Resolution")
+        self.display_resolution_label.grid(row=2, column=0)
+        self.display_resolution_var = tk.StringVar()
+        self.display_resolution_var.set("640x480")
+        self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var)
+        self.display_resolution_dropdown["values"] = list(display_resolutions.keys())
+        self.display_resolution_dropdown.grid(row=2, column=1)
         
         self.update_serial_ports()
         
@@ -154,9 +176,13 @@ class IRCamApp(tk.Tk):
                 
         min_temp = np.min(data)
         max_temp = np.max(data)
+        
+        display_min_range = min_temp - self.display_range_headroom
+        display_max_range = max_temp + self.display_range_headroom
 
-        min_range = min(min_temp-5, 10)
-        max_range = max(max_temp+5, 20)
+        if self.display_room_temp_in_range:
+            display_min_range = min(display_min_range, 20)
+            display_max_range = max(display_max_range, 20)
         
         #find index of min and max temp
         min_index = np.unravel_index(np.argmin(data), data.shape)
@@ -169,8 +195,8 @@ class IRCamApp(tk.Tk):
         min_pixel = self.input_pixel_to_output_pixel(*min_index)
         max_pixel = self.input_pixel_to_output_pixel(*max_index)
         
-        range = max_range - min_range
-        normalized = (data - min_range) / range
+        range = display_max_range - display_min_range
+        normalized = (data - display_min_range) / range
         
         #convert array to CV_8UC1
         cv_normalized = np.array(normalized * 255, dtype=np.uint8)
@@ -179,14 +205,17 @@ class IRCamApp(tk.Tk):
         color_map = color_maps[color_map_str]
         rgb = cv.applyColorMap(cv_normalized, color_map)
         
-        #rescale the image to 640x480
+        #rescale the image to self.display_resolution_var
+        display_resolution_var = self.display_resolution_var.get()
+        self.display_resolution = display_resolutions[display_resolution_var]
         rgb = cv.resize(rgb, self.display_resolution, interpolation=cv.INTER_CUBIC)
+
+        #print min and max temp on the image
+        cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         
         #add overlay
         if self.overlay:
-            #print min and max temp on the image
-            cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-            cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
             
             # #print min and max temp index on the image
             # cv.putText(rgb, "Min idx: %d, %d" % min_index, (10, 60), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
@@ -231,7 +260,7 @@ class IRCamApp(tk.Tk):
             res_keys = list(display_resolutions.keys())
             res_index = res_keys.index("%dx%d" % tuple(self.display_resolution))
             res_index = (res_index + 1) % len(res_keys)
-            self.display_resolution = display_resolutions[res_keys[res_index]]
+            self.display_resolution_var.set(res_keys[res_index])
             
             
 
