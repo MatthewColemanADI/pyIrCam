@@ -58,12 +58,16 @@ class IRCamApp(tk.Tk):
         self.frame_counter = 0
         self.line_counter = -1
         self.show_help = False
-        self.filter_noise_threshold = 1.5
+        self.filter_noise_threshold = 3
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
+
         #connect destroy event to stop the serial reader
         self.protocol("WM_DELETE_WINDOW", self.stop_services)
+
+        #create the widgets
         self.create_widgets()
+        
         
     #on delete window event handler to stop servies
     def stop_services(self):
