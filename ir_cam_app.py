@@ -10,7 +10,7 @@
 #Option to select the colour map
 
 
-import serial
+
 from serial.tools.list_ports import comports
 import time
 import tkinter as tk
@@ -19,9 +19,9 @@ import numpy as np
 import cv2 as cv
 import configparser
 import os
-from scipy import stats as scitats
-import msgpack
 import logging
+
+from ir_serial_reader import IRSerialReader
 
 #config logging to terminal
 logging.basicConfig(level=logging.INFO)
@@ -77,6 +77,7 @@ baudrates = [
     460800,
     921600
 ]
+
 
 class IRCamApp(tk.Tk):
     def __init__(self, port="", color_map="jet", *args, **kwargs):
@@ -203,19 +204,10 @@ class IRCamApp(tk.Tk):
             self.port_dropdown["values"] = [port for port, desc, hwid in ports]
     
     def connect(self):
-        port = self.port_var.get()
-        try:
-            self.ser = serial.Serial(port, self.baudrate, timeout=0.1, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS)
-        except Exception as e:
-            logging.error("Error connecting: %s" % e)
-            return
-        
         self.request_disconnect = False
-        #set button text to disconnect
+        port = self.port_var.get()       
+        self.ir_serial_reader = IRSerialReader(port, self.baudrate)
         self.port_button.config(text="Disconnect", command=self.disconnect)
-        
-        self.ser.flushInput()
-        self.unpacker = msgpack.Unpacker()
         self._read_data()
         
     def disconnect(self):
@@ -223,55 +215,19 @@ class IRCamApp(tk.Tk):
         
     def _read_data(self):
         if self.request_disconnect:
-            self.ser.close()
-            self.port_button.config(text="Connect", command=self.connect)
+            self.ir_serial_reader.stop()
+            self.ir_serial_reader = None
             cv.destroyAllWindows()
-            self.update_serial_ports()        
+            self.port_button.config(text="Connect", command=self.connect)
             return
         
-        try:
-            str_data = self.ser.read(1000)
-            # data = [float(x) for x in split_data]
-        except Exception as e:
-            logging.error("Error reading data: %s" % e)
-            self.after(10, self._read_data)
+        if not self.ir_serial_reader.is_alive():
             return
-
-        try:
-            self.unpacker.feed(str_data)
-        except Exception as e:
-            logging.warning("Error feeding data: %s" % e)
-            self.after(10, self._read_data)
-            return
-
-        unpacked = None
-        try:
-            while(1):
-                unpacked = self.unpacker.unpack()
-                frame_count = unpacked[0]
-                line_count = unpacked[1]
-                temperature_line = np.array(unpacked[2:], dtype=np.float32)
-                temperature_line *= 0.01
-                self.frame[line_count] = temperature_line
-                
-                if line_count != self.line_counter + 1:
-                    logging.warning("Missing line: %d of frame %d" % (line_count, self.frame_counter) )
-                    
-                self.line_counter = line_count
-
-                if line_count == 23:
-                    self._process_data(self.frame.flatten())
-                    self.frame_counter = frame_count + 1
-                    self.line_counter = -1
-                    break
-                elif frame_count != self.frame_counter:
-                    self.frame_counter = frame_count
-                    self.line_counter = line_count
-                    self._process_data(self.frame.flatten())
-                    break                
-        except Exception as e:
-            # logging.warning("Error unpacking data: %s" % e)
-            pass
+        
+        if not self.ir_serial_reader.rx_queue.empty():
+            data = self.ir_serial_reader.rx_queue.get_nowait()
+            if data is not None:
+                self._process_data(data)                    
 
         self.after(100, self._read_data)
 
@@ -404,12 +360,11 @@ class IRCamApp(tk.Tk):
             
         #Use cv to show the image
         cv.imshow("IR Camera", rgb)
-        key = cv.waitKey(1)
+        key = cv.waitKey(100)
         
         if key == 27:
             cv.destroyAllWindows()
             self.request_disconnect = True
-            self.ser.close()
             self.destroy()
         elif key == ord("c"):
             #capture the image to the capture folder with timestamp
