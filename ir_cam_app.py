@@ -58,11 +58,36 @@ class IRCamApp(tk.Tk):
         self.frame_counter = 0
         self.line_counter = -1
         self.show_help = False
+        self.filter_noise_threshold = 1.5
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
+        #connect destroy event to stop the serial reader
+        self.protocol("WM_DELETE_WINDOW", self.stop_services)
         self.create_widgets()
         
+    #on delete window event handler to stop servies
+    def stop_services(self):
+        self.request_disconnect = True
+        if self.ir_serial_reader:
+            if self.ir_serial_reader.is_alive():
+                self.ir_serial_reader.stop()
+        
+    def validate(self, action, index, value_if_allowed,
+                        prior_value, text, validation_type, trigger_type, widget_name):
+            if value_if_allowed:
+                try:
+                    float(value_if_allowed)
+                    return True
+                except ValueError:
+                    return False
+            else:
+                return False
+        
+        
     def create_widgets(self):
+        vcmd = (self.register(self.validate),
+                '%d', '%i', '%P', '%s', '%S', '%v', '%V', '%W')
+        
         row = 0
         
         self.port_label = tk.Label(self, text="Serial Port")
@@ -85,7 +110,7 @@ class IRCamApp(tk.Tk):
         
         self.baudrate_var = tk.IntVar()
         self.baudrate_var.set(self.baudrate)
-        self.baudrate_dropdown = ttk.Combobox(self, textvariable=self.baudrate_var)
+        self.baudrate_dropdown = ttk.Combobox(self, textvariable=self.baudrate_var, state="readonly")
         self.baudrate_dropdown["values"] = baudrates
         self.baudrate_dropdown.grid(row=row, column=1)
         
@@ -97,7 +122,7 @@ class IRCamApp(tk.Tk):
         
         self.color_map_var = tk.StringVar()
         self.color_map_var.set(self.color_map_default)
-        self.color_map_dropdown = ttk.Combobox(self, textvariable=self.color_map_var)
+        self.color_map_dropdown = ttk.Combobox(self, textvariable=self.color_map_var, state="readonly")
         self.color_map_dropdown["values"] = list(color_maps.keys())
         self.color_map_dropdown.grid(row=row, column=1)
         
@@ -106,7 +131,7 @@ class IRCamApp(tk.Tk):
         self.display_resolution_label.grid(row=2, column=0)
         self.display_resolution_var = tk.StringVar()
         self.display_resolution_var.set("640x480")
-        self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var)
+        self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var, state="readonly")
         self.display_resolution_dropdown["values"] = list(display_resolutions.keys())
         self.display_resolution_dropdown.grid(row=row, column=1)
         
@@ -139,12 +164,12 @@ class IRCamApp(tk.Tk):
         #display manual range values
         self.display_min_temp_manual_var = tk.DoubleVar()
         self.display_min_temp_manual_var.set(10)
-        self.display_min_temp_manual_entry = tk.Entry(self, textvariable=self.display_min_temp_manual_var)
+        self.display_min_temp_manual_entry = tk.Entry(self, textvariable=self.display_min_temp_manual_var, validate = 'key', validatecommand = vcmd)
         self.display_min_temp_manual_entry.grid(row=row, column=0)
         
         self.display_max_temp_manual_var = tk.DoubleVar()
         self.display_max_temp_manual_var.set(40)
-        self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var)
+        self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var, validate = 'key', validatecommand = vcmd)
         self.display_max_temp_manual_entry.grid(row=row, column=1)
         
         row += 1
@@ -155,7 +180,7 @@ class IRCamApp(tk.Tk):
         self.display_range_headroom_var = tk.DoubleVar()
         self.display_range_headroom_var.set(1)
         
-        self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var)
+        self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var, validate = 'key', validatecommand = vcmd)
         self.display_range_headroom_entry.grid(row=row, column=1)
         
         row += 1
@@ -164,8 +189,8 @@ class IRCamApp(tk.Tk):
         self.filter_noise_threshold_label = tk.Label(self, text="Filter Noise Threshold")
         self.filter_noise_threshold_label.grid(row=row, column=0)
         self.filter_noise_threshold_var = tk.DoubleVar()
-        self.filter_noise_threshold_var.set(1.5)
-        self.filter_noise_threshold_entry = tk.Entry(self, textvariable=self.filter_noise_threshold_var)
+        self.filter_noise_threshold_var.set(self.filter_noise_threshold)
+        self.filter_noise_threshold_entry = tk.Entry(self, textvariable=self.filter_noise_threshold_var, validate = 'key', validatecommand = vcmd)
         self.filter_noise_threshold_entry.grid(row=row, column=1)
                 
         self.update_serial_ports()
@@ -224,8 +249,12 @@ class IRCamApp(tk.Tk):
             logging.warning("Error reshaping data: %s" % e)
             return
 
-        noise_threshold = self.filter_noise_threshold_var.get()
-        self.filter.noise_threshold = noise_threshold
+        try:
+            noise_threshold = self.filter_noise_threshold_var.get()
+            if noise_threshold > 0 and noise_threshold < 1000:
+                self.filter.noise_threshold = noise_threshold
+        except:
+            pass
         data = self.filter.filter(data)
         
         #update display resolution
@@ -341,8 +370,8 @@ class IRCamApp(tk.Tk):
             contours_min_temp = [c for c in contours_min_temp if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
             
             #draw the contours on the image
-            cv.drawContours(rgb, contours_max_temp, -1, (255, 255, 255), 1)
-            cv.drawContours(rgb, contours_min_temp, -1, (0, 0, 0), 1)
+            cv.drawContours(rgb, contours_max_temp, -1, (255, 255, 255), 2)
+            cv.drawContours(rgb, contours_min_temp, -1, (0, 0, 0), 2)
             
             # hue_angulardist_max = hue - hsv_max_temp[0]
             # hue_angulardist_min = np.abs(hsv[:,:,0] - hsv_min_temp[0])
