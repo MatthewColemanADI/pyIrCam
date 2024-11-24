@@ -10,7 +10,6 @@
 #Option to select the colour map
 
 
-
 from serial.tools.list_ports import comports
 import time
 import tkinter as tk
@@ -28,6 +27,20 @@ from constants import *
 #config logging to terminal
 logging.basicConfig(level=logging.INFO)
 
+#class to do per pixel adaptive filtering
+class TemperatureFilter():
+    def __init__(self, shape, noise_threshold=1.5):
+        self.filtered = np.zeros(shape, dtype=np.float32)
+        self.noise_threshold = noise_threshold
+        
+    def filter(self, data):
+        deltas = data - self.filtered
+        deltas2 = np.square(deltas)
+        gains = deltas2 / (deltas2 + self.noise_threshold)
+        self.filtered = self.filtered + (gains * deltas)
+        return self.filtered
+        
+        
 
 class IRCamApp(tk.Tk):
     def __init__(self, port="", color_map="jet", *args, **kwargs):
@@ -44,7 +57,9 @@ class IRCamApp(tk.Tk):
         self.show_contours = False
         self.frame_counter = 0
         self.line_counter = -1
+        self.show_help = False
         self.frame = np.zeros((24, 32), dtype=np.float32)
+        self.filter = TemperatureFilter((24, 32))
         self.create_widgets()
         
     def create_widgets(self):
@@ -143,6 +158,15 @@ class IRCamApp(tk.Tk):
         self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var)
         self.display_range_headroom_entry.grid(row=row, column=1)
         
+        row += 1
+        
+        #Temperature filter noise threshold
+        self.filter_noise_threshold_label = tk.Label(self, text="Filter Noise Threshold")
+        self.filter_noise_threshold_label.grid(row=row, column=0)
+        self.filter_noise_threshold_var = tk.DoubleVar()
+        self.filter_noise_threshold_var.set(1.5)
+        self.filter_noise_threshold_entry = tk.Entry(self, textvariable=self.filter_noise_threshold_var)
+        self.filter_noise_threshold_entry.grid(row=row, column=1)
                 
         self.update_serial_ports()
         
@@ -189,16 +213,20 @@ class IRCamApp(tk.Tk):
         #convert input pixel to output pixel
         #input pixel is 32x24
         #output pixel is self.display_resolution
-        output_x = int(x * self.display_resolution[0] / 32)
-        output_y = int(y * self.display_resolution[1] / 24)
+        output_x = int((x+0.5) * self.display_resolution[0] / 32)
+        output_y = int((y+0.5) * self.display_resolution[1] / 24)
         return output_x, output_y
         
     def _display_data(self, data):
         try:
-            data = data.reshape(24, 32)
+            data = data.reshape(24, 32)            
         except Exception as e:
             logging.warning("Error reshaping data: %s" % e)
             return
+
+        noise_threshold = self.filter_noise_threshold_var.get()
+        self.filter.noise_threshold = noise_threshold
+        data = self.filter.filter(data)
         
         #update display resolution
         display_resolution_var = self.display_resolution_var.get()
@@ -250,8 +278,21 @@ class IRCamApp(tk.Tk):
         max_pixel_position = self.input_pixel_to_output_pixel(*max_index)
 
         #print min and max temp on the image
+        cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+        cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        
+        if self.show_help:
+            #draw help table on the image
+            help_x = 150
+            help_y = 20
+            help_line_height = 20
+            for line in help_table:
+                cv.putText(rgb, line[0], (help_x, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                cv.putText(rgb, line[1], (help_x + 100, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                help_y += help_line_height        
         
         #add overlay
         if self.overlay:
@@ -268,38 +309,40 @@ class IRCamApp(tk.Tk):
             circle_size = int(self.display_resolution[0]*0.01)
             cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
             cv.circle(rgb, max_pixel_position, circle_size, (255, 255, 255), 2)
+            
+
                         
-            if self.show_contours:
-                #convert the rgb image to hsv
-                hsv = cv.cvtColor(rgb, cv.COLOR_BGR2HSV)
-                            
-                #get the pixel value of the display for min and max temp
-                hsv_max_temp = hsv[max_pixel_position[1], max_pixel_position[0]]
-                hsv_min_temp = hsv[min_pixel_position[1], min_pixel_position[0]]
-                
-                hsv_max_temp_max = hsv_max_temp + [10, 10, 10]
-                hsv_max_temp_min = hsv_max_temp - [10, 10, 10]
-                hsv_min_temp_max = hsv_min_temp + [10, 10, 10]
-                hsv_min_temp_min = hsv_min_temp - [10, 10, 10]
-                            
-                # #get hue angular distance from hsv to min and max.
-                # #wrap around the hue value with maximum 180
-                
-                #cv mask areas of the image with the min and max pixel values
-                mask_max_temp = cv.inRange(hsv, hsv_max_temp_min, hsv_max_temp_max)
-                mask_min_temp = cv.inRange(hsv, hsv_min_temp_min, hsv_min_temp_max)
-                
-                #cv get countours of the masks
-                contours_max_temp, _ = cv.findContours(mask_max_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-                contours_min_temp, _ = cv.findContours(mask_min_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-                
-                #choose contours containing the max and min pixel
-                contours_max_temp = [c for c in contours_max_temp if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
-                contours_min_temp = [c for c in contours_min_temp if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
-                
-                #draw the contours on the image
-                cv.drawContours(rgb, contours_max_temp, -1, (255, 255, 255), 1)
-                cv.drawContours(rgb, contours_min_temp, -1, (0, 0, 0), 1)
+        if self.show_contours:
+            #convert the rgb image to hsv
+            hsv = cv.cvtColor(rgb, cv.COLOR_BGR2HSV)
+                        
+            #get the pixel value of the display for min and max temp
+            hsv_max_temp = hsv[max_pixel_position[1], max_pixel_position[0]]
+            hsv_min_temp = hsv[min_pixel_position[1], min_pixel_position[0]]
+            
+            hsv_max_temp_max = hsv_max_temp + [10, 10, 10]
+            hsv_max_temp_min = hsv_max_temp - [10, 10, 10]
+            hsv_min_temp_max = hsv_min_temp + [10, 10, 10]
+            hsv_min_temp_min = hsv_min_temp - [10, 10, 10]
+                        
+            # #get hue angular distance from hsv to min and max.
+            # #wrap around the hue value with maximum 180
+            
+            #cv mask areas of the image with the min and max pixel values
+            mask_max_temp = cv.inRange(hsv, hsv_max_temp_min, hsv_max_temp_max)
+            mask_min_temp = cv.inRange(hsv, hsv_min_temp_min, hsv_min_temp_max)
+            
+            #cv get countours of the masks
+            contours_max_temp, _ = cv.findContours(mask_max_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            contours_min_temp, _ = cv.findContours(mask_min_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            
+            #choose contours containing the max and min pixel
+            contours_max_temp = [c for c in contours_max_temp if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
+            contours_min_temp = [c for c in contours_min_temp if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
+            
+            #draw the contours on the image
+            cv.drawContours(rgb, contours_max_temp, -1, (255, 255, 255), 1)
+            cv.drawContours(rgb, contours_min_temp, -1, (0, 0, 0), 1)
             
             # hue_angulardist_max = hue - hsv_max_temp[0]
             # hue_angulardist_min = np.abs(hsv[:,:,0] - hsv_min_temp[0])
@@ -311,11 +354,13 @@ class IRCamApp(tk.Tk):
         cv.imshow("IR Camera", rgb)
         key = cv.waitKey(100)
         
-        if key == 27:
+        #capitalize the key
+        
+        if key == 27 or key == ord("q") or key == ord("Q"):
             cv.destroyAllWindows()
             self.request_disconnect = True
             self.destroy()
-        elif key == ord("c"):
+        elif key == ord("c") or key == ord("C"):
             #capture the image to the capture folder with timestamp
             folderpath = os.path.join(os.getcwd(), "capture")
             os.makedirs(folderpath, exist_ok=True)
@@ -327,27 +372,29 @@ class IRCamApp(tk.Tk):
             data_filename = "ir_cam_%s.csv" % timestamp
             data_filepath = os.path.join(folderpath, data_filename)
             np.savetxt(data_filepath, data, delimiter=",", fmt="%.2f")
-        elif key == ord("p"):
+        elif key == ord("p") or key == ord(" ") or key == ord("P"):
             #pause the display
             cv.waitKey(0)
-        elif key == ord("o"):
+        elif key == ord("o") or key == ord("O"):
             #enable/disable the information overlay
             self.overlay = not self.overlay
-        elif key == ord("d"):
+        elif key == ord("d") or key == ord("D"):
             #cycle through the display sizes/resolutions
             res_keys = list(display_resolutions.keys())
             res_index = res_keys.index("%dx%d" % tuple(self.display_resolution))
             res_index = (res_index + 1) % len(res_keys)
             self.display_resolution_var.set(res_keys[res_index])
-        elif key == ord("m"):
+        elif key == ord("m") or key == ord("M"):
             #cycle through the color maps
             cmap_keys = list(color_maps.keys())
             cmap_index = cmap_keys.index(self.color_map_var.get())
             cmap_index = (cmap_index + 1) % len(cmap_keys)
             self.color_map_var.set(cmap_keys[cmap_index])
-        elif key == ord("t"):
+        elif key == ord("t") or key == ord("T"):
             #toggle show contours
             self.show_contours = not self.show_contours
+        elif key == ord("h") or key == ord("H"):
+            self.show_help = not self.show_help
             
             
 

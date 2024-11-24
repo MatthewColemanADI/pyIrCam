@@ -4,6 +4,7 @@ from queue import Queue
 import msgpack
 import serial
 import numpy as np
+import logging
 
 class IRSerialReader(Thread):
     def __init__(self, port, baudrate):
