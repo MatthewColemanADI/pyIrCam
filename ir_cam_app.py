@@ -20,7 +20,11 @@ import cv2 as cv
 import configparser
 import os
 from scipy import stats as scitats
+import msgpack
+import logging
 
+#config logging to terminal
+logging.basicConfig(level=logging.INFO)
 
 color_maps = {
     "Jet": cv.COLORMAP_JET,
@@ -56,6 +60,24 @@ display_interpolations = {
     "Lanczos4": cv.INTER_LANCZOS4    
 }
 
+sample_rates = {
+    "1 Hz": 1,
+    "2 Hz": 2,
+    "4 Hz": 3,
+    "8 Hz": 4,
+    "16 Hz": 5,
+    "32 Hz": 6,
+    "64 Hz": 7
+}
+
+baudrates = [
+    57600,
+    115200,
+    230400,
+    460800,
+    921600
+]
+
 class IRCamApp(tk.Tk):
     def __init__(self, port="", color_map="jet", *args, **kwargs):
         tk.Tk.__init__(self, *args, **kwargs)
@@ -66,30 +88,52 @@ class IRCamApp(tk.Tk):
         self.color_map_default = color_map
         self.overlay = True
         self.display_resolution = display_resolutions["640x480"]
+        self.unpacker = None
+        self.baudrate = 460800
+        self.show_contours = False
+        self.frame_counter = 0
+        self.line_counter = -1
+        self.frame = np.zeros((24, 32), dtype=np.float32)
         self.create_widgets()
         
     def create_widgets(self):
+        row = 0
+        
         self.port_label = tk.Label(self, text="Serial Port")
-        self.port_label.grid(row=0, column=0)
+        self.port_label.grid(row=row, column=0)
         
         #dropdown to select the serial port
         self.port_var = tk.StringVar()
         self.port_var.set(self.port)
         self.port_dropdown = ttk.Combobox(self, textvariable=self.port_var)
-        self.port_dropdown.grid(row=0, column=1)
+        self.port_dropdown.grid(row=row, column=1)
         
         self.port_button = tk.Button(self, text="Connect", command=self.connect)
-        self.port_button.grid(row=0, column=2)
+        self.port_button.grid(row=row, column=2)
+        
+        row += 1
+        
+        #baudrate chooser
+        self.baudrate_label = tk.Label(self, text="Baudrate")
+        self.baudrate_label.grid(row=row, column=0)
+        
+        self.baudrate_var = tk.IntVar()
+        self.baudrate_var.set(self.baudrate)
+        self.baudrate_dropdown = ttk.Combobox(self, textvariable=self.baudrate_var)
+        self.baudrate_dropdown["values"] = baudrates
+        self.baudrate_dropdown.grid(row=row, column=1)
+        
+        row += 1
         
         #color maps chooser
         self.color_map_label = tk.Label(self, text="Color Map")
-        self.color_map_label.grid(row=1, column=0)
+        self.color_map_label.grid(row=row, column=0)
         
         self.color_map_var = tk.StringVar()
         self.color_map_var.set(self.color_map_default)
         self.color_map_dropdown = ttk.Combobox(self, textvariable=self.color_map_var)
         self.color_map_dropdown["values"] = list(color_maps.keys())
-        self.color_map_dropdown.grid(row=1, column=1)
+        self.color_map_dropdown.grid(row=row, column=1)
         
         #display resolution chooser
         self.display_resolution_label = tk.Label(self, text="Display Resolution")
@@ -98,7 +142,9 @@ class IRCamApp(tk.Tk):
         self.display_resolution_var.set("640x480")
         self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var)
         self.display_resolution_dropdown["values"] = list(display_resolutions.keys())
-        self.display_resolution_dropdown.grid(row=2, column=1)
+        self.display_resolution_dropdown.grid(row=row, column=1)
+        
+        row += 1
         
         #display interpolation chooser
         self.display_interpolation_label = tk.Label(self, text="Display Interpolation")
@@ -107,38 +153,44 @@ class IRCamApp(tk.Tk):
         self.display_interpolation_var.set("Cubic")
         self.display_interpolation_dropdown = ttk.Combobox(self, textvariable=self.display_interpolation_var)
         self.display_interpolation_dropdown["values"] = list(display_interpolations.keys())
-        self.display_interpolation_dropdown.grid(row=3, column=1)
+        self.display_interpolation_dropdown.grid(row=row, column=1)
+        
+        row += 1
         
         #display autorange checkboxes for min and max
         self.display_min_temp_autorange_var = tk.BooleanVar()
         self.display_min_temp_autorange_checkbox = tk.Checkbutton(self, text="Min Temp Auto", variable=self.display_min_temp_autorange_var)
-        self.display_min_temp_autorange_checkbox.grid(row=4, column=0)
+        self.display_min_temp_autorange_checkbox.grid(row=row, column=0)
         self.display_min_temp_autorange_var.set(True)
         
         self.display_max_temp_autorange_var = tk.BooleanVar()
         self.display_max_temp_autorange_checkbox = tk.Checkbutton(self, text="Max Temp Auto", variable=self.display_max_temp_autorange_var)
-        self.display_max_temp_autorange_checkbox.grid(row=4, column=1)
+        self.display_max_temp_autorange_checkbox.grid(row=row, column=1)
         self.display_max_temp_autorange_var.set(True)
+        
+        row += 1
         
         #display manual range values
         self.display_min_temp_manual_var = tk.DoubleVar()
         self.display_min_temp_manual_var.set(10)
         self.display_min_temp_manual_entry = tk.Entry(self, textvariable=self.display_min_temp_manual_var)
-        self.display_min_temp_manual_entry.grid(row=5, column=0)
+        self.display_min_temp_manual_entry.grid(row=row, column=0)
         
         self.display_max_temp_manual_var = tk.DoubleVar()
         self.display_max_temp_manual_var.set(40)
         self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var)
-        self.display_max_temp_manual_entry.grid(row=5, column=1)
+        self.display_max_temp_manual_entry.grid(row=row, column=1)
+        
+        row += 1
         
         #display range headroom
         self.display_range_headroom_label = tk.Label(self, text="Display Range Headroom")
-        self.display_range_headroom_label.grid(row=6, column=0)
+        self.display_range_headroom_label.grid(row=row, column=0)
         self.display_range_headroom_var = tk.DoubleVar()
         self.display_range_headroom_var.set(1)
         
         self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var)
-        self.display_range_headroom_entry.grid(row=6, column=1)
+        self.display_range_headroom_entry.grid(row=row, column=1)
         
                 
         self.update_serial_ports()
@@ -153,14 +205,17 @@ class IRCamApp(tk.Tk):
     def connect(self):
         port = self.port_var.get()
         try:
-            self.ser = serial.Serial(port, 115200)
+            self.ser = serial.Serial(port, self.baudrate, timeout=0.1, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS)
         except Exception as e:
-            print("Error connecting: %s" % e)
+            logging.error("Error connecting: %s" % e)
             return
         
         self.request_disconnect = False
         #set button text to disconnect
         self.port_button.config(text="Disconnect", command=self.disconnect)
+        
+        self.ser.flushInput()
+        self.unpacker = msgpack.Unpacker()
         self._read_data()
         
     def disconnect(self):
@@ -175,19 +230,52 @@ class IRCamApp(tk.Tk):
             return
         
         try:
-            str_data = self.ser.readline().strip()
-            str_data = str_data.decode("utf-8")
-            split_data = str_data.split(",")
-            split_data = split_data[0:768]
-            #Convert str to float
-            data = [float(x) for x in split_data]
+            str_data = self.ser.read(1000)
+            # data = [float(x) for x in split_data]
         except Exception as e:
-            print("Error reading data: %s" % e)
-            self.after(500, self._read_data)
+            logging.error("Error reading data: %s" % e)
+            self.after(10, self._read_data)
             return
-        self._process_data(data)
+
+        try:
+            self.unpacker.feed(str_data)
+        except Exception as e:
+            logging.warning("Error feeding data: %s" % e)
+            self.after(10, self._read_data)
+            return
+
+        unpacked = None
+        try:
+            while(1):
+                unpacked = self.unpacker.unpack()
+                frame_count = unpacked[0]
+                line_count = unpacked[1]
+                temperature_line = np.array(unpacked[2:], dtype=np.float32)
+                temperature_line *= 0.01
+                self.frame[line_count] = temperature_line
+                
+                if line_count != self.line_counter + 1:
+                    logging.warning("Missing line: %d of frame %d" % (line_count, self.frame_counter) )
+                    
+                self.line_counter = line_count
+
+                if line_count == 23:
+                    self._process_data(self.frame.flatten())
+                    self.frame_counter = frame_count + 1
+                    self.line_counter = -1
+                    break
+                elif frame_count != self.frame_counter:
+                    self.frame_counter = frame_count
+                    self.line_counter = line_count
+                    self._process_data(self.frame.flatten())
+                    break                
+        except Exception as e:
+            # logging.warning("Error unpacking data: %s" % e)
+            pass
+
         self.after(100, self._read_data)
-        
+
+
     def _process_data(self, data):
         data = np.array(data, dtype=np.float32)
         self._display_data(data)
@@ -204,7 +292,7 @@ class IRCamApp(tk.Tk):
         try:
             data = data.reshape(24, 32)
         except Exception as e:
-            print("Error reshaping data: %s" % e)
+            logging.warning("Error reshaping data: %s" % e)
             return
         
         #update display resolution
@@ -256,7 +344,6 @@ class IRCamApp(tk.Tk):
         min_pixel_position = self.input_pixel_to_output_pixel(*min_index)
         max_pixel_position = self.input_pixel_to_output_pixel(*max_index)
 
-
         #print min and max temp on the image
         cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
@@ -272,15 +359,42 @@ class IRCamApp(tk.Tk):
             # cv.putText(rgb, "Min px: %d, %d" % min_pixel, (10, 100), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
             # cv.putText(rgb, "Max px: %d, %d" % max_pixel, (10, 120), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
             
-            # hsv = cv.cvtColor(rgb, cv.COLOR_BGR2HSV)
+            #draw min and max pixel circles on the image
+            circle_size = int(self.display_resolution[0]*0.01)
+            cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
+            cv.circle(rgb, max_pixel_position, circle_size, (255, 255, 255), 2)
                         
-            # #get the pixel value of the display for min and max temp
-            # hsv_max_temp = hsv[max_pixel_position[1], max_pixel_position[0]]
-            # hsv_min_temp = hsv[min_pixel_position[1], min_pixel_position[0]]
-            
-            # #get hue angular distance from hsv to min and max.
-            # #wrap around the hue value with maximum 180
-            # hue = hsv[:,:,0]
+            if self.show_contours:
+                #convert the rgb image to hsv
+                hsv = cv.cvtColor(rgb, cv.COLOR_BGR2HSV)
+                            
+                #get the pixel value of the display for min and max temp
+                hsv_max_temp = hsv[max_pixel_position[1], max_pixel_position[0]]
+                hsv_min_temp = hsv[min_pixel_position[1], min_pixel_position[0]]
+                
+                hsv_max_temp_max = hsv_max_temp + [10, 10, 10]
+                hsv_max_temp_min = hsv_max_temp - [10, 10, 10]
+                hsv_min_temp_max = hsv_min_temp + [10, 10, 10]
+                hsv_min_temp_min = hsv_min_temp - [10, 10, 10]
+                            
+                # #get hue angular distance from hsv to min and max.
+                # #wrap around the hue value with maximum 180
+                
+                #cv mask areas of the image with the min and max pixel values
+                mask_max_temp = cv.inRange(hsv, hsv_max_temp_min, hsv_max_temp_max)
+                mask_min_temp = cv.inRange(hsv, hsv_min_temp_min, hsv_min_temp_max)
+                
+                #cv get countours of the masks
+                contours_max_temp, _ = cv.findContours(mask_max_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+                contours_min_temp, _ = cv.findContours(mask_min_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+                
+                #choose contours containing the max and min pixel
+                contours_max_temp = [c for c in contours_max_temp if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
+                contours_min_temp = [c for c in contours_min_temp if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
+                
+                #draw the contours on the image
+                cv.drawContours(rgb, contours_max_temp, -1, (255, 255, 255), 1)
+                cv.drawContours(rgb, contours_min_temp, -1, (0, 0, 0), 1)
             
             # hue_angulardist_max = hue - hsv_max_temp[0]
             # hue_angulardist_min = np.abs(hsv[:,:,0] - hsv_min_temp[0])
@@ -288,16 +402,12 @@ class IRCamApp(tk.Tk):
             # #find the circular mean of the hue values
             # rect_area_hsv_average[:1] = scitats.circmean(rectangle_sample[:,:,0].flatten(), high=180, low=0)            
             
-            #draw min and max pixel circles on the image
-            circle_size = int(self.display_resolution[0]*0.01)
-            cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
-            cv.circle(rgb, max_pixel_position, circle_size, (255, 255, 255), 2)
-
         #Use cv to show the image
         cv.imshow("IR Camera", rgb)
         key = cv.waitKey(1)
         
         if key == 27:
+            cv.destroyAllWindows()
             self.request_disconnect = True
             self.ser.close()
             self.destroy()
@@ -331,6 +441,9 @@ class IRCamApp(tk.Tk):
             cmap_index = cmap_keys.index(self.color_map_var.get())
             cmap_index = (cmap_index + 1) % len(cmap_keys)
             self.color_map_var.set(cmap_keys[cmap_index])
+        elif key == ord("t"):
+            #toggle show contours
+            self.show_contours = not self.show_contours
             
             
 
