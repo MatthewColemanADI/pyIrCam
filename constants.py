@@ -52,3 +52,16 @@ baudrates = [
     460800,
     921600
 ]
+
+help_table = [
+    ["Key", "Function"],
+    ["Esc, q", "Exit the program"],
+    ["Space, p", "Pause the video"],
+    ["M", "Change the color map"],
+    ["C", "Capture the current frame"],
+    ["H", "Toggle the help"],
+    ["D", "Change the display resolution"],
+    ["I", "Change the display interpolation"],
+    ["T", "Show temperature contours"],
+    ["O", "Show information overlay"]
+]
