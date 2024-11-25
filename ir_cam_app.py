@@ -47,12 +47,13 @@ class IRCamApp(tk.Tk):
         tk.Tk.__init__(self, *args, **kwargs)
         self.request_disconnect = False
         self.title("IR Camera")
-        self.geometry("640x480")
+        self.geometry()
         self.port = port
         self.color_map_default = color_map
         self.overlay = True
         self.display_resolution = display_resolutions["640x480"]
         self.unpacker = None
+        self.ir_serial_reader = None
         self.baudrate = 460800
         self.show_contours = False
         self.frame_counter = 0
@@ -63,19 +64,21 @@ class IRCamApp(tk.Tk):
         self.filter = TemperatureFilter((24, 32))
 
         #connect destroy event to stop the serial reader
-        self.protocol("WM_DELETE_WINDOW", self.stop_services)
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         #create the widgets
         self.create_widgets()
         
         
     #on delete window event handler to stop servies
-    def stop_services(self):
+    def on_closing(self):
         self.request_disconnect = True
-        if self.ir_serial_reader:
+        if self.ir_serial_reader is not None:
             if self.ir_serial_reader.is_alive():
                 self.ir_serial_reader.stop()
+        self.destroy()
         
+    #validation function for value entry widgets  
     def validate(self, action, index, value_if_allowed,
                         prior_value, text, validation_type, trigger_type, widget_name):
             if value_if_allowed:
@@ -89,46 +92,54 @@ class IRCamApp(tk.Tk):
         
         
     def create_widgets(self):
+        
+        padx = 12
+        pady = 6
+        
+        #validation command for value entry widgets
         vcmd = (self.register(self.validate),
                 '%d', '%i', '%P', '%s', '%S', '%v', '%V', '%W')
         
         row = 0
+
+        self.port_button = tk.Button(self, text="Connect", command=self.connect)
+        self.port_button.grid(row=row, column=0, columnspan=2, sticky="ew", padx=padx, pady=pady)
+        
+        row += 1
         
         self.port_label = tk.Label(self, text="Serial Port")
-        self.port_label.grid(row=row, column=0)
+        self.port_label.grid(row=row, column=0, padx=padx, pady=pady)
         
         #dropdown to select the serial port
         self.port_var = tk.StringVar()
         self.port_var.set(self.port)
         self.port_dropdown = ttk.Combobox(self, textvariable=self.port_var)
-        self.port_dropdown.grid(row=row, column=1)
+        self.port_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
-        self.port_button = tk.Button(self, text="Connect", command=self.connect)
-        self.port_button.grid(row=row, column=2)
         
         row += 1
         
         #baudrate chooser
         self.baudrate_label = tk.Label(self, text="Baudrate")
-        self.baudrate_label.grid(row=row, column=0)
+        self.baudrate_label.grid(row=row, column=0, padx=padx, pady=pady)
         
         self.baudrate_var = tk.IntVar()
         self.baudrate_var.set(self.baudrate)
         self.baudrate_dropdown = ttk.Combobox(self, textvariable=self.baudrate_var, state="readonly")
         self.baudrate_dropdown["values"] = baudrates
-        self.baudrate_dropdown.grid(row=row, column=1)
+        self.baudrate_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
         row += 1
         
         #color maps chooser
         self.color_map_label = tk.Label(self, text="Color Map")
-        self.color_map_label.grid(row=row, column=0)
+        self.color_map_label.grid(row=row, column=0, padx=padx, pady=pady)
         
         self.color_map_var = tk.StringVar()
         self.color_map_var.set(self.color_map_default)
         self.color_map_dropdown = ttk.Combobox(self, textvariable=self.color_map_var, state="readonly")
         self.color_map_dropdown["values"] = list(color_maps.keys())
-        self.color_map_dropdown.grid(row=row, column=1)
+        self.color_map_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
         #display resolution chooser
         self.display_resolution_label = tk.Label(self, text="Display Resolution")
@@ -137,7 +148,7 @@ class IRCamApp(tk.Tk):
         self.display_resolution_var.set("640x480")
         self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var, state="readonly")
         self.display_resolution_dropdown["values"] = list(display_resolutions.keys())
-        self.display_resolution_dropdown.grid(row=row, column=1)
+        self.display_resolution_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
         row += 1
         
@@ -148,54 +159,53 @@ class IRCamApp(tk.Tk):
         self.display_interpolation_var.set("Cubic")
         self.display_interpolation_dropdown = ttk.Combobox(self, textvariable=self.display_interpolation_var)
         self.display_interpolation_dropdown["values"] = list(display_interpolations.keys())
-        self.display_interpolation_dropdown.grid(row=row, column=1)
+        self.display_interpolation_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
         row += 1
         
         #display autorange checkboxes for min and max
         self.display_min_temp_autorange_var = tk.BooleanVar()
         self.display_min_temp_autorange_checkbox = tk.Checkbutton(self, text="Min Temp Auto", variable=self.display_min_temp_autorange_var)
-        self.display_min_temp_autorange_checkbox.grid(row=row, column=0)
+        self.display_min_temp_autorange_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
         self.display_min_temp_autorange_var.set(True)
         
-        self.display_max_temp_autorange_var = tk.BooleanVar()
-        self.display_max_temp_autorange_checkbox = tk.Checkbutton(self, text="Max Temp Auto", variable=self.display_max_temp_autorange_var)
-        self.display_max_temp_autorange_checkbox.grid(row=row, column=1)
-        self.display_max_temp_autorange_var.set(True)
-        
-        row += 1
-        
-        #display manual range values
         self.display_min_temp_manual_var = tk.DoubleVar()
         self.display_min_temp_manual_var.set(10)
         self.display_min_temp_manual_entry = tk.Entry(self, textvariable=self.display_min_temp_manual_var, validate = 'key', validatecommand = vcmd)
-        self.display_min_temp_manual_entry.grid(row=row, column=0)
+        self.display_min_temp_manual_entry.grid(row=row, column=1, padx=padx, pady=pady)
+                
+        row += 1
         
+        self.display_max_temp_autorange_var = tk.BooleanVar()
+        self.display_max_temp_autorange_checkbox = tk.Checkbutton(self, text="Max Temp Auto", variable=self.display_max_temp_autorange_var)
+        self.display_max_temp_autorange_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
+        self.display_max_temp_autorange_var.set(True)
+                
         self.display_max_temp_manual_var = tk.DoubleVar()
         self.display_max_temp_manual_var.set(40)
         self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var, validate = 'key', validatecommand = vcmd)
-        self.display_max_temp_manual_entry.grid(row=row, column=1)
+        self.display_max_temp_manual_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
         row += 1
         
         #display range headroom
         self.display_range_headroom_label = tk.Label(self, text="Display Range Headroom")
-        self.display_range_headroom_label.grid(row=row, column=0)
+        self.display_range_headroom_label.grid(row=row, column=0, padx=padx, pady=pady)
         self.display_range_headroom_var = tk.DoubleVar()
         self.display_range_headroom_var.set(1)
         
         self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var, validate = 'key', validatecommand = vcmd)
-        self.display_range_headroom_entry.grid(row=row, column=1)
+        self.display_range_headroom_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
         row += 1
         
         #Temperature filter noise threshold
         self.filter_noise_threshold_label = tk.Label(self, text="Filter Noise Threshold")
-        self.filter_noise_threshold_label.grid(row=row, column=0)
+        self.filter_noise_threshold_label.grid(row=row, column=0, padx=padx, pady=pady)
         self.filter_noise_threshold_var = tk.DoubleVar()
         self.filter_noise_threshold_var.set(self.filter_noise_threshold)
         self.filter_noise_threshold_entry = tk.Entry(self, textvariable=self.filter_noise_threshold_var, validate = 'key', validatecommand = vcmd)
-        self.filter_noise_threshold_entry.grid(row=row, column=1)
+        self.filter_noise_threshold_entry.grid(row=row, column=1, padx=padx, pady=pady)
                 
         self.update_serial_ports()
         
@@ -391,8 +401,8 @@ class IRCamApp(tk.Tk):
         
         if key == 27 or key == ord("q") or key == ord("Q"):
             cv.destroyAllWindows()
-            self.request_disconnect = True
-            self.destroy()
+            #close the app
+            self.on_closing()
         elif key == ord("c") or key == ord("C"):
             #capture the image to the capture folder with timestamp
             folderpath = os.path.join(os.getcwd(), "capture")
