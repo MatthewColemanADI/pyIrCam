@@ -59,6 +59,7 @@ class IRCamApp(tk.Tk):
         self.frame_counter = 0
         self.line_counter = -1
         self.show_help = False
+        self.debug = False
         self.filter_noise_threshold = 3
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
@@ -333,9 +334,9 @@ class IRCamApp(tk.Tk):
             help_y = 20
             help_line_height = 20
             for line in help_table:
-                cv.putText(rgb, line[0], (help_x, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-                cv.putText(rgb, line[1], (help_x + 100, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-                help_y += help_line_height        
+                cv.putText(rgb, line[0], (help_x, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+                cv.putText(rgb, line[1], (help_x + 100, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+                help_y += help_line_height     
         
         #add overlay
         if self.overlay:
@@ -356,43 +357,67 @@ class IRCamApp(tk.Tk):
 
                         
         if self.show_contours:
-            #convert the rgb image to hsv
-            hsv = cv.cvtColor(rgb, cv.COLOR_BGR2HSV)
-                        
-            #get the pixel value of the display for min and max temp
-            hsv_max_temp = hsv[max_pixel_position[1], max_pixel_position[0]]
-            hsv_min_temp = hsv[min_pixel_position[1], min_pixel_position[0]]
+            temp_range = max_temp - min_temp
             
-            hsv_max_temp_max = hsv_max_temp + [10, 10, 10]
-            hsv_max_temp_min = hsv_max_temp - [10, 10, 10]
-            hsv_min_temp_max = hsv_min_temp + [10, 10, 10]
-            hsv_min_temp_min = hsv_min_temp - [10, 10, 10]
-                        
-            # #get hue angular distance from hsv to min and max.
-            # #wrap around the hue value with maximum 180
+            #data with temperature above 90% of the range
+            high_temperatures = data > (max_temp - 0.1 * temp_range)
             
-            #cv mask areas of the image with the min and max pixel values
-            mask_max_temp = cv.inRange(hsv, hsv_max_temp_min, hsv_max_temp_max)
-            mask_min_temp = cv.inRange(hsv, hsv_min_temp_min, hsv_min_temp_max)
+            #data with temperature below 10% of the range
+            low_temperatures = data < (min_temp + 0.1 * temp_range)
             
-            #cv get countours of the masks
-            contours_max_temp, _ = cv.findContours(mask_max_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            contours_min_temp, _ = cv.findContours(mask_min_temp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            #convert the data to CV_8UC1
+            high_temperatures = np.array(high_temperatures * 255, dtype=np.uint8)
+            low_temperatures = np.array(low_temperatures * 255, dtype=np.uint8)
             
+            #scale the high and low temperature pixels to the display resolution
+            display_interpolation = display_interpolations[self.display_interpolation_var.get()]
+            high_temperatures = cv.resize(high_temperatures, self.display_resolution, interpolation=display_interpolation)
+            low_temperatures = cv.resize(low_temperatures, self.display_resolution, interpolation=display_interpolation)
+
+            blur_size = int(self.display_resolution[0] * 0.02)
+            if blur_size % 2 == 0:
+                blur_size += 1
+
+            #gaussian blur the high and low temperature pixels
+            high_temperatures = cv.GaussianBlur(high_temperatures, (blur_size, blur_size), 0)
+            low_temperatures = cv.GaussianBlur(low_temperatures, (blur_size, blur_size), 0)
+                                    
+            #make contours of the high and low temperature pixels
+            high_contours, _ = cv.findContours(high_temperatures, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            low_contours, _ = cv.findContours(low_temperatures, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
             #choose contours containing the max and min pixel
-            contours_max_temp = [c for c in contours_max_temp if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
-            contours_min_temp = [c for c in contours_min_temp if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
+            high_contours = [c for c in high_contours if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
+            low_contours = [c for c in low_contours if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
             
             #draw the contours on the image
-            cv.drawContours(rgb, contours_max_temp, -1, (255, 255, 255), 2)
-            cv.drawContours(rgb, contours_min_temp, -1, (0, 0, 0), 2)
+            cv.drawContours(rgb, high_contours, -1, (255, 255, 255), 2)
+            cv.drawContours(rgb, low_contours, -1, (0, 0, 0), 2)        
+
+            if self.debug:
+                #show the high and low temperature pixels
+                cv.imshow("High Temperatures", high_temperatures)
+                cv.imshow("Low Temperatures", low_temperatures)
+        
+        if not self.debug:
+            try:
+                cv.destroyWindow("High Temperatures")
+            except:
+                pass
+            try:
+                cv.destroyWindow("Low Temperatures")
+            except:
+                pass
+
+        #If not in help mode show the help hint at the bottom
+        if not self.show_help:
+            cv.putText(rgb, "H for help", (10, self.display_resolution[1] - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # hue_angulardist_max = hue - hsv_max_temp[0]
-            # hue_angulardist_min = np.abs(hsv[:,:,0] - hsv_min_temp[0])
+        #If debugging then show it at the bottom
+        if self.debug:
+            cv.putText(rgb, "Debug mode", (10, self.display_resolution[1] - 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
             
-            # #find the circular mean of the hue values
-            # rect_area_hsv_average[:1] = scitats.circmean(rectangle_sample[:,:,0].flatten(), high=180, low=0)            
-            
+        
         #Use cv to show the image
         cv.imshow("IR Camera", rgb)
         key = cv.waitKey(100)
@@ -434,11 +459,12 @@ class IRCamApp(tk.Tk):
             cmap_index = (cmap_index + 1) % len(cmap_keys)
             self.color_map_var.set(cmap_keys[cmap_index])
         elif key == ord("t") or key == ord("T"):
-            #toggle show contours
+            #toggle show temperature contours
             self.show_contours = not self.show_contours
         elif key == ord("h") or key == ord("H"):
             self.show_help = not self.show_help
-            
+        elif key == ord("b") or key == ord("B"):
+            self.debug = not self.debug
             
 
         

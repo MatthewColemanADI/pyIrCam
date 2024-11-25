@@ -63,5 +63,7 @@ help_table = [
     ["D", "Change the display resolution"],
     ["I", "Change the display interpolation"],
     ["T", "Show temperature contours"],
-    ["O", "Show information overlay"]
+    ["O", "Show min max points"],
+    ["D", "Change the display resolution"],
+    ["B", "Debug mode"],
 ]
