@@ -14,6 +14,7 @@ from serial.tools.list_ports import comports
 import time
 import tkinter as tk
 from tkinter import ttk
+from tkinter import filedialog
 import numpy as np
 import cv2 as cv
 import configparser
@@ -61,6 +62,7 @@ class IRCamApp(tk.Tk):
         self.show_help = False
         self.debug = False
         self.filter_noise_threshold = 3
+        self.loaded_data = None
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
 
@@ -102,9 +104,15 @@ class IRCamApp(tk.Tk):
                 '%d', '%i', '%P', '%s', '%S', '%v', '%V', '%W')
         
         row = 0
+        
+        #Load saved capture button
+        self.load_capture_button = tk.Button(self, text="Load Capture", command=self.load_capture_data)
+        self.load_capture_button.grid(row=row, column=0, columnspan=2, sticky="ew", padx=padx, pady=pady)
+                
+        row += 1
 
         self.port_button = tk.Button(self, text="Connect", command=self.connect)
-        self.port_button.grid(row=row, column=0, columnspan=2, sticky="ew", padx=padx, pady=pady)
+        self.port_button.grid(row=row, column=0, columnspan=2, sticky="ew", padx=padx, pady=pady*2)
         
         row += 1
         
@@ -142,9 +150,11 @@ class IRCamApp(tk.Tk):
         self.color_map_dropdown["values"] = list(color_maps.keys())
         self.color_map_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
+        row += 1
+                
         #display resolution chooser
         self.display_resolution_label = tk.Label(self, text="Display Resolution")
-        self.display_resolution_label.grid(row=2, column=0)
+        self.display_resolution_label.grid(row=row, column=0)
         self.display_resolution_var = tk.StringVar()
         self.display_resolution_var.set("640x480")
         self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var, state="readonly")
@@ -155,7 +165,7 @@ class IRCamApp(tk.Tk):
         
         #display interpolation chooser
         self.display_interpolation_label = tk.Label(self, text="Display Interpolation")
-        self.display_interpolation_label.grid(row=3, column=0)
+        self.display_interpolation_label.grid(row=row, column=0)
         self.display_interpolation_var = tk.StringVar()
         self.display_interpolation_var.set("Cubic")
         self.display_interpolation_dropdown = ttk.Combobox(self, textvariable=self.display_interpolation_var)
@@ -210,6 +220,21 @@ class IRCamApp(tk.Tk):
                 
         self.update_serial_ports()
         
+    def load_capture_data(self):
+        folderpath = os.path.join(os.getcwd(), "capture")
+        filepath = filedialog.askopenfilename(initialdir=folderpath, title="Select file", filetypes=(("CSV data files", "*.csv"), ("all files", "*.*")))
+        if not filepath:
+            return
+        #load csv data
+        self.loaded_data = np.loadtxt(filepath, delimiter=",")
+        self.refresh_loaded_data()
+        
+    def refresh_loaded_data(self):
+        if self.loaded_data is None:
+            return
+        self._display_data(self.loaded_data)
+        self.after(100, self.refresh_loaded_data)                
+        
     def update_serial_ports(self):
         self.port_dropdown["values"] = []
         ports = comports()
@@ -240,6 +265,7 @@ class IRCamApp(tk.Tk):
         
         data = self.ir_serial_reader.rx_queue.get(10)
         if data is not None:
+            self.loaded_data = None
             self._process_data(data)                    
 
         self.after(10, self._read_data)
@@ -278,7 +304,7 @@ class IRCamApp(tk.Tk):
                 
         #reverse the x axis
         data = np.fliplr(data)
-                
+        
         min_temp = np.min(data)
         max_temp = np.max(data)
         
@@ -295,9 +321,16 @@ class IRCamApp(tk.Tk):
         
         range = display_max_range - display_min_range
         normalized = (data - display_min_range) / range
+
+        #make the left side pixels a color temperature scale from 0 to 1
+        normalized[:, 0] = np.linspace(start=0, stop=24, num=24).T * (1/24)
+        
+        normalized_scale = range / 24
+        min_temp_normalized_pos = (min_temp - display_min_range) / normalized_scale
+        max_temp_normalized_pos = (max_temp - display_min_range) / normalized_scale
         
         #limit the range to 0-1
-        normalized = np.clip(normalized, 0, 1)
+        normalized = np.clip(normalized, 0, 1)        
         
         #convert array to CV_8UC1
         cv_normalized = np.array(normalized * 255, dtype=np.uint8)
@@ -320,13 +353,16 @@ class IRCamApp(tk.Tk):
         
         min_pixel_position = self.input_pixel_to_output_pixel(*min_index)
         max_pixel_position = self.input_pixel_to_output_pixel(*max_index)
+        
+        min_temp_position = self.input_pixel_to_output_pixel(x=0, y=min_temp_normalized_pos)
+        max_temp_position = self.input_pixel_to_output_pixel(x=0, y=max_temp_normalized_pos)
 
-        #print min and max temp on the image
-        cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        cv.putText(rgb, "Min: %.2f" % min_temp, (10, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        #print min and max temp
+        cv.putText(rgb, "%.2f" % min_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % min_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
 
-        cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        cv.putText(rgb, "Max: %.2f" % max_temp, (10, 40), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        cv.putText(rgb, "%.2f" % max_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % max_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
         
         if self.show_help:
             #draw help table on the image
@@ -341,19 +377,13 @@ class IRCamApp(tk.Tk):
         #add overlay
         if self.overlay:
             
-            # #print min and max temp index on the image
-            # cv.putText(rgb, "Min idx: %d, %d" % min_index, (10, 60), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-            # cv.putText(rgb, "Max idx: %d, %d" % max_index, (10, 80), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-            
-            # #print min and max pixel on the image
-            # cv.putText(rgb, "Min px: %d, %d" % min_pixel, (10, 100), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-            # cv.putText(rgb, "Max px: %d, %d" % max_pixel, (10, 120), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-            
             #draw min and max pixel circles on the image
-            circle_size = int(self.display_resolution[0]*0.01)
+            circle_size = int(self.display_resolution[0]*0.005) + 4
             cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
             cv.circle(rgb, max_pixel_position, circle_size, (255, 255, 255), 2)
             
+            cv.circle(rgb, min_temp_position, circle_size, (0, 0, 0), 2)
+            cv.circle(rgb, max_temp_position, circle_size, (255, 255, 255), 2)
 
                         
         if self.show_contours:
@@ -411,11 +441,11 @@ class IRCamApp(tk.Tk):
 
         #If not in help mode show the help hint at the bottom
         if not self.show_help:
-            cv.putText(rgb, "H for help", (10, self.display_resolution[1] - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+            cv.putText(rgb, "H for help", (self.display_resolution[0]-100, self.display_resolution[1] - 10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
         #If debugging then show it at the bottom
         if self.debug:
-            cv.putText(rgb, "Debug mode", (10, self.display_resolution[1] - 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
+            cv.putText(rgb, "Debug mode", (self.display_resolution[0]-100, self.display_resolution[1] - 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
             
         
         #Use cv to show the image
