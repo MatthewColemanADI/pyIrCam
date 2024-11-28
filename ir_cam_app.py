@@ -323,11 +323,11 @@ class IRCamApp(tk.Tk):
         normalized = (data - display_min_range) / range
 
         #make the left side pixels a color temperature scale from 0 to 1
-        normalized[:, 0] = np.linspace(start=0, stop=24, num=24).T * (1/24)
+        normalized[:, 0] = np.linspace(start=24, stop=0, num=24).T * (1/24)
         
         normalized_scale = range / 24
-        min_temp_normalized_pos = (min_temp - display_min_range) / normalized_scale
-        max_temp_normalized_pos = (max_temp - display_min_range) / normalized_scale
+        min_temp_normalized_pos = (display_max_range - min_temp) / normalized_scale
+        max_temp_normalized_pos = (display_max_range - max_temp) / normalized_scale
         
         #limit the range to 0-1
         normalized = np.clip(normalized, 0, 1)        
@@ -358,11 +358,11 @@ class IRCamApp(tk.Tk):
         max_temp_position = self.input_pixel_to_output_pixel(x=0, y=max_temp_normalized_pos)
 
         #print min and max temp
-        cv.putText(rgb, "%.2f" % min_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % min_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
 
-        cv.putText(rgb, "%.2f" % max_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % max_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
         
         if self.show_help:
             #draw help table on the image
