@@ -322,12 +322,6 @@ class IRCamApp(tk.Tk):
         range = display_max_range - display_min_range
         normalized = (data - display_min_range) / range
 
-        #make the left side pixels a color temperature scale from 0 to 1
-        normalized[:, 0] = np.linspace(start=24, stop=0, num=24).T * (1/24)
-        
-        normalized_scale = range / 24
-        min_temp_normalized_pos = (display_max_range - min_temp) / normalized_scale
-        max_temp_normalized_pos = (display_max_range - max_temp) / normalized_scale
         
         #limit the range to 0-1
         normalized = np.clip(normalized, 0, 1)        
@@ -353,6 +347,28 @@ class IRCamApp(tk.Tk):
         
         min_pixel_position = self.input_pixel_to_output_pixel(*min_index)
         max_pixel_position = self.input_pixel_to_output_pixel(*max_index)
+
+        #MAKE TEMPERATURE SCALE
+        #make the left side pixels a color temperature scale from 0 to 1
+        temp_scale = np.linspace(start=255, stop=0, num=24).T
+        
+        #convert the scale to CV_8UC1
+        temp_scale = np.array(temp_scale, dtype=np.uint8)
+        
+        temp_scale_width_px = int(20 * self.display_resolution[0] / 640)
+        
+        #rescale the temperature scale to the display resolution
+        temp_scale = cv.resize(temp_scale, (temp_scale_width_px, self.display_resolution[1]), interpolation=display_interpolation)
+        
+        #convert the temperature scale to a color map
+        temp_scale = cv.applyColorMap(temp_scale, color_map)
+        
+        #add the temperature scale to the left side of the image
+        rgb[:, :temp_scale_width_px] = temp_scale
+        
+        normalized_scale = range / 24
+        min_temp_normalized_pos = (display_max_range - min_temp) / normalized_scale
+        max_temp_normalized_pos = (display_max_range - max_temp) / normalized_scale
         
         min_temp_position = self.input_pixel_to_output_pixel(x=0, y=min_temp_normalized_pos)
         max_temp_position = self.input_pixel_to_output_pixel(x=0, y=max_temp_normalized_pos)
@@ -376,7 +392,6 @@ class IRCamApp(tk.Tk):
         
         #add overlay
         if self.overlay:
-            
             #draw min and max pixel circles on the image
             circle_size = int(self.display_resolution[0]*0.005) + 4
             cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
