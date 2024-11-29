@@ -217,6 +217,17 @@ class IRCamApp(tk.Tk):
         self.filter_noise_threshold_var.set(self.filter_noise_threshold)
         self.filter_noise_threshold_entry = tk.Entry(self, textvariable=self.filter_noise_threshold_var, validate = 'key', validatecommand = vcmd)
         self.filter_noise_threshold_entry.grid(row=row, column=1, padx=padx, pady=pady)
+        
+        row += 1
+        
+        #Temperature contour tolerance
+        self.contour_tolerance_label = tk.Label(self, text="Contour Tolerance %")
+        self.contour_tolerance_label.grid(row=row, column=0, padx=padx, pady=pady)
+        self.contour_tolerance_var = tk.DoubleVar()
+        self.contour_tolerance_var.set(5)
+        self.contour_tolerance_entry = tk.Entry(self, textvariable=self.contour_tolerance_var, validate = 'key', validatecommand = vcmd)
+        self.contour_tolerance_entry.grid(row=row, column=1, padx=padx, pady=pady)
+        
                 
         self.update_serial_ports()
         
@@ -366,7 +377,7 @@ class IRCamApp(tk.Tk):
         #add the temperature scale to the left side of the image
         rgb[:, :temp_scale_width_px] = temp_scale
         
-        normalized_scale = range / 24
+        normalized_scale = range / 23
         min_temp_normalized_pos = (display_max_range - min_temp) / normalized_scale
         max_temp_normalized_pos = (display_max_range - max_temp) / normalized_scale
         
@@ -374,11 +385,17 @@ class IRCamApp(tk.Tk):
         max_temp_position = self.input_pixel_to_output_pixel(x=0, y=max_temp_normalized_pos)
 
         #print min and max temp
-        cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        # cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        # cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
 
-        cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        # cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        # cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        
+        cv.putText(rgb, "%.2f" % max_temp, (30, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % max_temp, (30, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        cv.putText(rgb, "%.2f" % min_temp, (30, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % min_temp, (30, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)        
         
         if self.show_help:
             #draw help table on the image
@@ -404,11 +421,15 @@ class IRCamApp(tk.Tk):
         if self.show_contours:
             temp_range = max_temp - min_temp
             
+            contour_tolerance = self.contour_tolerance_var.get()
+            contour_tolerance = np.clip(contour_tolerance, 0, 100)
+            contour_tolerance *= 0.01
+            
             #data with temperature above 90% of the range
-            high_temperatures = data > (max_temp - 0.1 * temp_range)
+            high_temperatures = data > (max_temp - contour_tolerance * temp_range)
             
             #data with temperature below 10% of the range
-            low_temperatures = data < (min_temp + 0.1 * temp_range)
+            low_temperatures = data < (min_temp + contour_tolerance * temp_range)
             
             #convert the data to CV_8UC1
             high_temperatures = np.array(high_temperatures * 255, dtype=np.uint8)
