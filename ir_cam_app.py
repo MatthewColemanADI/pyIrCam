@@ -359,21 +359,11 @@ class IRCamApp(tk.Tk):
         min_pixel_position = self.input_pixel_to_output_pixel(*min_index)
         max_pixel_position = self.input_pixel_to_output_pixel(*max_index)
 
-        #MAKE TEMPERATURE SCALE
-        #make the left side pixels a color temperature scale from 0 to 1
-        temp_scale = np.linspace(start=255, stop=0, num=24).T
-        
-        #convert the scale to CV_8UC1
-        temp_scale = np.array(temp_scale, dtype=np.uint8)
-        
+        #Make temperature scale
         temp_scale_width_px = int(20 * self.display_resolution[0] / 640)
-        
-        #rescale the temperature scale to the display resolution
-        temp_scale = cv.resize(temp_scale, (temp_scale_width_px, self.display_resolution[1]), interpolation=display_interpolation)
-        
-        #convert the temperature scale to a color map
-        temp_scale = cv.applyColorMap(temp_scale, color_map)
-        
+        temp_scale_size = (temp_scale_width_px, self.display_resolution[1])
+        temp_scale = self.make_temp_scale(color_map, display_interpolation, temp_scale_size)
+                
         #add the temperature scale to the left side of the image
         rgb[:, :temp_scale_width_px] = temp_scale
         
@@ -383,19 +373,15 @@ class IRCamApp(tk.Tk):
         
         min_temp_position = self.input_pixel_to_output_pixel(x=0, y=min_temp_normalized_pos)
         max_temp_position = self.input_pixel_to_output_pixel(x=0, y=max_temp_normalized_pos)
-
-        #print min and max temp
-        # cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        # cv.putText(rgb, "%.2f" % max_temp, (30, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-
-        # cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        # cv.putText(rgb, "%.2f" % min_temp, (30, self.display_resolution[1]-10), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
         
-        cv.putText(rgb, "%.2f" % max_temp, (30, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % max_temp, (30, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        #print min and max temp
+        text_size = 0.5
+        text_xpos = temp_scale_width_px+10
+        cv.putText(rgb, "%.2f" % max_temp, (text_xpos, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % max_temp, (text_xpos, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
 
-        cv.putText(rgb, "%.2f" % min_temp, (30, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % min_temp, (30, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)        
+        cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+        cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)        
         
         if self.show_help:
             #draw help table on the image
@@ -419,51 +405,7 @@ class IRCamApp(tk.Tk):
 
                         
         if self.show_contours:
-            temp_range = max_temp - min_temp
-            
-            contour_tolerance = self.contour_tolerance_var.get()
-            contour_tolerance = np.clip(contour_tolerance, 0, 100)
-            contour_tolerance *= 0.01
-            
-            #data with temperature above 90% of the range
-            high_temperatures = data > (max_temp - contour_tolerance * temp_range)
-            
-            #data with temperature below 10% of the range
-            low_temperatures = data < (min_temp + contour_tolerance * temp_range)
-            
-            #convert the data to CV_8UC1
-            high_temperatures = np.array(high_temperatures * 255, dtype=np.uint8)
-            low_temperatures = np.array(low_temperatures * 255, dtype=np.uint8)
-            
-            #scale the high and low temperature pixels to the display resolution
-            display_interpolation = display_interpolations[self.display_interpolation_var.get()]
-            high_temperatures = cv.resize(high_temperatures, self.display_resolution, interpolation=display_interpolation)
-            low_temperatures = cv.resize(low_temperatures, self.display_resolution, interpolation=display_interpolation)
-
-            blur_size = int(self.display_resolution[0] * 0.02)
-            if blur_size % 2 == 0:
-                blur_size += 1
-
-            #gaussian blur the high and low temperature pixels
-            high_temperatures = cv.GaussianBlur(high_temperatures, (blur_size, blur_size), 0)
-            low_temperatures = cv.GaussianBlur(low_temperatures, (blur_size, blur_size), 0)
-                                    
-            #make contours of the high and low temperature pixels
-            high_contours, _ = cv.findContours(high_temperatures, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            low_contours, _ = cv.findContours(low_temperatures, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-
-            #choose contours containing the max and min pixel
-            high_contours = [c for c in high_contours if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
-            low_contours = [c for c in low_contours if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
-            
-            #draw the contours on the image
-            cv.drawContours(rgb, high_contours, -1, (255, 255, 255), 2)
-            cv.drawContours(rgb, low_contours, -1, (0, 0, 0), 2)        
-
-            if self.debug:
-                #show the high and low temperature pixels
-                cv.imshow("High Temperatures", high_temperatures)
-                cv.imshow("Low Temperatures", low_temperatures)
+            self.draw_contours(data, max_temp, min_temp, max_pixel_position, min_pixel_position, rgb)
         
         if not self.debug:
             try:
@@ -533,9 +475,71 @@ class IRCamApp(tk.Tk):
             self.debug = not self.debug
             
 
+    def make_temp_scale(self, color_map, display_interpolation, temp_scale_size):
+        #make the a color temperature scale from 255 to 0
+        temp_scale = np.linspace(start=255, stop=0, num=24).T
         
+        #convert the scale to CV_8UC1
+        temp_scale = np.array(temp_scale, dtype=np.uint8)
+        
+        #rescale the temperature scale to the display resolution
+        temp_scale = cv.resize(temp_scale, (temp_scale_size[0], temp_scale_size[1]), interpolation=display_interpolation)
+        
+        #convert the temperature scale to a color map
+        temp_scale = cv.applyColorMap(temp_scale, color_map)
 
+        return temp_scale
+    
+    def draw_contours(self, data, max_temp, min_temp, max_pixel_position, min_pixel_position, rgb):
+        temp_range = max_temp - min_temp
+        
+        contour_tolerance = self.contour_tolerance_var.get()
+        contour_tolerance = np.clip(contour_tolerance, 0, 100)
+        contour_tolerance *= 0.01
+        
+        #data with temperature above 90% of the range
+        high_temperatures = data > (max_temp - contour_tolerance * temp_range)
+        
+        #data with temperature below 10% of the range
+        low_temperatures = data < (min_temp + contour_tolerance * temp_range)
+        
+        #convert the data to CV_8UC1
+        high_temperatures = np.array(high_temperatures * 255, dtype=np.uint8)
+        low_temperatures = np.array(low_temperatures * 255, dtype=np.uint8)
+        
+        #scale the high and low temperature pixels to the display resolution
+        display_interpolation = display_interpolations[self.display_interpolation_var.get()]
+        high_temperatures = cv.resize(high_temperatures, self.display_resolution, interpolation=display_interpolation)
+        low_temperatures = cv.resize(low_temperatures, self.display_resolution, interpolation=display_interpolation)
 
+        blur_size = int(self.display_resolution[0] * 0.02)
+        if blur_size % 2 == 0:
+            blur_size += 1
+
+        #gaussian blur the high and low temperature pixels
+        high_temperatures = cv.GaussianBlur(high_temperatures, (blur_size, blur_size), 0)
+        low_temperatures = cv.GaussianBlur(low_temperatures, (blur_size, blur_size), 0)
+                                
+        #make contours of the high and low temperature pixels
+        high_contours, _ = cv.findContours(high_temperatures, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        low_contours, _ = cv.findContours(low_temperatures, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+        #choose contours containing the max and min pixel
+        high_contours = [c for c in high_contours if cv.pointPolygonTest(c, max_pixel_position, False) >= 0]
+        low_contours = [c for c in low_contours if cv.pointPolygonTest(c, min_pixel_position, False) >= 0]
+        
+        #draw the contours on the image
+        cv.drawContours(rgb, high_contours, -1, (255, 255, 255), 2)
+        cv.drawContours(rgb, low_contours, -1, (0, 0, 0), 2)
+        
+        if self.debug:
+            #show the high and low temperature pixels
+            cv.imshow("High Temperatures", high_temperatures)
+            cv.imshow("Low Temperatures", low_temperatures)
+
+            
+            
+            
 def main():
     config = configparser.ConfigParser()
     #add config for last used port
