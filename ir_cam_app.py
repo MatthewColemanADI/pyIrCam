@@ -37,7 +37,7 @@ class TemperatureFilter():
     def filter(self, data):
         deltas = data - self.filtered
         deltas2 = np.square(deltas)
-        gains = deltas2 / (deltas2 + self.noise_threshold)
+        gains = deltas2 / (deltas2 + self.noise_threshold**2)
         self.filtered = self.filtered + (gains * deltas)
         return self.filtered
         
@@ -59,9 +59,9 @@ class IRCamApp(tk.Tk):
         self.line_counter = -1
         self.show_help = False
         self.debug = False
-        self.filter_noise_threshold = 10
         self.loaded_data = None
         self.paused = False
+        self.last_data = None
 
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
@@ -108,7 +108,7 @@ class IRCamApp(tk.Tk):
         #Load saved capture button
         self.load_capture_button = tk.Button(self, text="Load Capture", command=self.load_capture_data)
         self.load_capture_button.grid(row=row, column=0, columnspan=2, sticky="ew", padx=padx, pady=pady)
-                
+                        
         row += 1
 
         self.port_button = tk.Button(self, text="Connect", command=self.connect)
@@ -125,7 +125,6 @@ class IRCamApp(tk.Tk):
         self.port_dropdown = ttk.Combobox(self, textvariable=self.port_var)
         self.port_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
         
-        
         row += 1
         
         #baudrate chooser
@@ -137,6 +136,14 @@ class IRCamApp(tk.Tk):
         self.baudrate_dropdown = ttk.Combobox(self, textvariable=self.baudrate_var, state="readonly")
         self.baudrate_dropdown["values"] = baudrates
         self.baudrate_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
+        
+        row += 1
+        
+        #Pause button
+        self.paused_var = tk.BooleanVar()
+        self.pause_button = tk.Button(self, text="Pause", command=lambda: self.paused_var.set(not self.paused_var.get()))
+        self.pause_button.grid(row=row, column=0, columnspan=2, sticky="ew", padx=padx, pady=pady)
+        self.paused_var.set(False)
         
         row += 1
         
@@ -156,7 +163,7 @@ class IRCamApp(tk.Tk):
         self.display_resolution_label = tk.Label(self, text="Display Resolution")
         self.display_resolution_label.grid(row=row, column=0)
         self.display_resolution_var = tk.StringVar()
-        self.display_resolution_var.set("640x480")
+        self.display_resolution_var.set(DISPLAY_RESOLUTION_DEFAULT)
         self.display_resolution_dropdown = ttk.Combobox(self, textvariable=self.display_resolution_var, state="readonly")
         self.display_resolution_dropdown["values"] = list(display_resolutions.keys())
         self.display_resolution_dropdown.grid(row=row, column=1, padx=padx, pady=pady)
@@ -178,10 +185,10 @@ class IRCamApp(tk.Tk):
         self.display_min_temp_autorange_var = tk.BooleanVar()
         self.display_min_temp_autorange_checkbox = tk.Checkbutton(self, text="Min Temp Auto", variable=self.display_min_temp_autorange_var)
         self.display_min_temp_autorange_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
-        self.display_min_temp_autorange_var.set(True)
+        self.display_min_temp_autorange_var.set(MIN_TEMP_AUTORANGE_DEFAULT)
         
         self.display_min_temp_manual_var = tk.DoubleVar()
-        self.display_min_temp_manual_var.set(10)
+        self.display_min_temp_manual_var.set(MIN_TEMP_MANUAL_DEFAULT)
         self.display_min_temp_manual_entry = tk.Entry(self, textvariable=self.display_min_temp_manual_var, validate = 'key', validatecommand = vcmd)
         self.display_min_temp_manual_entry.grid(row=row, column=1, padx=padx, pady=pady)
                 
@@ -190,10 +197,10 @@ class IRCamApp(tk.Tk):
         self.display_max_temp_autorange_var = tk.BooleanVar()
         self.display_max_temp_autorange_checkbox = tk.Checkbutton(self, text="Max Temp Auto", variable=self.display_max_temp_autorange_var)
         self.display_max_temp_autorange_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
-        self.display_max_temp_autorange_var.set(True)
+        self.display_max_temp_autorange_var.set(MAX_TEMP_AUTORANGE_DEFAULT)
                 
         self.display_max_temp_manual_var = tk.DoubleVar()
-        self.display_max_temp_manual_var.set(40)
+        self.display_max_temp_manual_var.set(MAX_TEMP_MANUAL_DEFAULT)
         self.display_max_temp_manual_entry = tk.Entry(self, textvariable=self.display_max_temp_manual_var, validate = 'key', validatecommand = vcmd)
         self.display_max_temp_manual_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
@@ -203,7 +210,7 @@ class IRCamApp(tk.Tk):
         self.display_range_headroom_label = tk.Label(self, text="Display Range Headroom")
         self.display_range_headroom_label.grid(row=row, column=0, padx=padx, pady=pady)
         self.display_range_headroom_var = tk.DoubleVar()
-        self.display_range_headroom_var.set(1)
+        self.display_range_headroom_var.set(DISPLAY_RANGE_HEADROOM_DEFAULT)
         
         self.display_range_headroom_entry = tk.Entry(self, textvariable=self.display_range_headroom_var, validate = 'key', validatecommand = vcmd)
         self.display_range_headroom_entry.grid(row=row, column=1, padx=padx, pady=pady)
@@ -214,7 +221,7 @@ class IRCamApp(tk.Tk):
         self.filter_noise_threshold_label = tk.Label(self, text="Filter Noise Threshold")
         self.filter_noise_threshold_label.grid(row=row, column=0, padx=padx, pady=pady)
         self.filter_noise_threshold_var = tk.DoubleVar()
-        self.filter_noise_threshold_var.set(self.filter_noise_threshold)
+        self.filter_noise_threshold_var.set(FILTER_NOISE_DEFAULT)
         self.filter_noise_threshold_entry = tk.Entry(self, textvariable=self.filter_noise_threshold_var, validate = 'key', validatecommand = vcmd)
         self.filter_noise_threshold_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
@@ -224,7 +231,7 @@ class IRCamApp(tk.Tk):
         self.contour_tolerance_label = tk.Label(self, text="Contour Tolerance %")
         self.contour_tolerance_label.grid(row=row, column=0, padx=padx, pady=pady)
         self.contour_tolerance_var = tk.DoubleVar()
-        self.contour_tolerance_var.set(3)
+        self.contour_tolerance_var.set(CONTOUR_TOLERANCE_DEFAULT)
         self.contour_tolerance_entry = tk.Entry(self, textvariable=self.contour_tolerance_var, validate = 'key', validatecommand = vcmd)
         self.contour_tolerance_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
@@ -233,15 +240,13 @@ class IRCamApp(tk.Tk):
         self.show_scale_ticks_var = tk.BooleanVar()
         self.show_scale_ticks_checkbox = tk.Checkbutton(self, text="Show Scale Ticks", variable=self.show_scale_ticks_var)
         self.show_scale_ticks_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
-        self.show_scale_ticks_var.set(True)
-        
-        row += 1
-        
+        self.show_scale_ticks_var.set(SHOW_SCALE_TICKS_DEFAULT)
+                
         #show contours checkbox
         self.show_contours_var = tk.BooleanVar()
         self.show_contours_checkbox = tk.Checkbutton(self, text="Show Contours", variable=self.show_contours_var)
-        self.show_contours_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
-        self.show_contours_var.set(False)
+        self.show_contours_checkbox.grid(row=row, column=1, padx=padx, pady=pady)
+        self.show_contours_var.set(SHOW_CONTOURS_DEFAULT)
                 
         self.update_serial_ports()
         
@@ -362,6 +367,8 @@ class IRCamApp(tk.Tk):
                 self.filter.noise_threshold = noise_threshold
         except:
             pass
+        
+        #filter new data for every frame, even when paused
         data = self.filter.filter(data)
         
         #update display resolution
@@ -370,6 +377,11 @@ class IRCamApp(tk.Tk):
                 
         #reverse the x axis
         data = np.fliplr(data)
+        
+        if self.paused_var.get():
+            data = self.last_data
+        
+        self.last_data = data
         
         min_temp = np.min(data)
         max_temp = np.max(data)
@@ -423,39 +435,7 @@ class IRCamApp(tk.Tk):
         text_xpos = temp_scale_width_px+10
         
         if self.show_scale_ticks_var.get():
-            #Find the nearest decade to the temperatue range
-            decade = 5 ** int(np.log(display_range)/np.log(5))
-            
-            #Floor the min display range to the nearest decade
-            display_min_tick = np.floor(display_min_range / decade) * decade
-            
-            #Ceil the max display range to the nearest decade
-            display_max_tick = np.ceil(display_max_range / decade) * decade
-
-            #make a range of ticks from min to max with decade spacing
-            num_ticks = int((display_max_tick - display_min_tick) / decade)
-            tick_temperatures = np.linspace(display_min_tick, display_max_tick, num_ticks+1)
-             
-            #Find the tick temperature locations normalized to the temperature input scale 0-1
-#            tick_temperatures_normalized = self.normalize_temperature_data(tick_temperatures, display_min_range, display_max_range)
-                        
-            # Convert temperature input scale to display output scale
-            tick_scale_positions = self.temperature_to_scale_normalized(tick_temperatures, display_range, display_max_range)
-
-            #Convert the display scale positions to pixel positions
-            # tick_scale_positions = [self.input_pixel_to_output_pixel(x=0, y=pos) for pos in tick_scale_positions]
-            tick_positions_px = self.input_pixels_to_output_pixels(tick_scale_positions)
-            
-            if decade < 1:
-                format = "%.1f"
-            else:
-                format = "%.0f"
-            
-            #Draw the ticks on the image
-            for tick_position, tick_temperature in zip(tick_positions_px, tick_temperatures):
-                cv.line(rgb, (0, tick_position), (temp_scale_width_px, tick_position), (255, 255, 255), 3)
-                cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-                cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+            self.draw_ticks(rgb, display_min_range, display_max_range, temp_scale_width_px, text_xpos, text_y_offset, text_size)
 
         self.draw_hotspot(min_temp_position, rgb, fg=(0, 0, 0), bg=(255, 255, 255))
         self.draw_hotspot(max_temp_position, rgb, fg=(255, 255, 255), bg=(0, 0, 0))
@@ -507,7 +487,7 @@ class IRCamApp(tk.Tk):
         
         #Use cv to show the image
         cv.imshow("IR Camera", rgb)
-        key = cv.waitKey(100)
+        key = cv.waitKey(50)
         
         #capitalize the key
         
@@ -529,7 +509,7 @@ class IRCamApp(tk.Tk):
             np.savetxt(data_filepath, data, delimiter=",", fmt="%.2f")
         elif key == ord("p") or key == ord(" ") or key == ord("P"):
             #pause the display
-            self.paused = not self.paused
+            self.paused_var.set(not self.paused_var.get())
         elif key == ord("d") or key == ord("D"):
             #cycle through the display sizes/resolutions
             res_keys = list(display_resolutions.keys())
@@ -616,8 +596,42 @@ class IRCamApp(tk.Tk):
             cv.imshow("High Temperatures", high_temperatures)
             cv.imshow("Low Temperatures", low_temperatures)
 
+    def draw_ticks(self, rgb, display_min_range, display_max_range, temp_scale_width_px, text_xpos, text_y_offset, text_size):
+        display_range = display_max_range - display_min_range
+        
+        #Find the nearest decade to the temperatue range
+        decade = 5 ** int(np.log(display_range)/np.log(5))
+        
+        #Floor the min display range to the nearest decade
+        display_min_tick = np.floor(display_min_range / decade) * decade
+        
+        #Ceil the max display range to the nearest decade
+        display_max_tick = np.ceil(display_max_range / decade) * decade
+
+        #make a range of ticks from min to max with decade spacing
+        num_ticks = int((display_max_tick - display_min_tick) / decade)
+        tick_temperatures = np.linspace(display_min_tick, display_max_tick, num_ticks+1)
             
-            
+        #Find the tick temperature locations normalized to the temperature input scale 0-1
+#            tick_temperatures_normalized = self.normalize_temperature_data(tick_temperatures, display_min_range, display_max_range)
+                    
+        # Convert temperature input scale to display output scale
+        tick_scale_positions = self.temperature_to_scale_normalized(tick_temperatures, display_range, display_max_range)
+
+        #Convert the display scale positions to pixel positions
+        # tick_scale_positions = [self.input_pixel_to_output_pixel(x=0, y=pos) for pos in tick_scale_positions]
+        tick_positions_px = self.input_pixels_to_output_pixels(tick_scale_positions)
+        
+        if decade < 1:
+            format = "%.1f"
+        else:
+            format = "%.0f"
+        
+        #Draw the ticks on the image
+        for tick_position, tick_temperature in zip(tick_positions_px, tick_temperatures):
+            cv.line(rgb, (0, tick_position), (temp_scale_width_px, tick_position), (255, 255, 255), 3)
+            cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+            cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)            
             
 def main():
     config = configparser.ConfigParser()
