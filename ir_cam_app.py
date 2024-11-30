@@ -295,6 +295,11 @@ class IRCamApp(tk.Tk):
         output_x = int((x+0.5) * self.display_resolution[0] / 32)
         output_y = int((y+0.5) * self.display_resolution[1] / 24)
         return output_x, output_y
+
+    def input_pixels_to_output_pixels(self, temp_pos):
+        out_px = (temp_pos + 0.5) * self.display_resolution[1] / 24
+        out_px = np.round(out_px).astype(np.int64)
+        return out_px
     
     def get_display_range(self, min_temp, max_temp):
         display_min_range = self.display_min_temp_manual_var.get()
@@ -315,6 +320,11 @@ class IRCamApp(tk.Tk):
     def normalize_temperature_data(self, data, min_temp, max_temp):
         normalized = (data - min_temp) / (max_temp - min_temp)
         return normalized
+    
+    def temperature_to_scale_normalized(self, normalized_temp, display_range, display_max_range):
+        normalized_scale = display_range / 23
+        display_scale_temp = (display_max_range - normalized_temp) / normalized_scale
+        return display_scale_temp
     
     def _display_data(self, data):
         try:
@@ -378,9 +388,8 @@ class IRCamApp(tk.Tk):
         #add the temperature scale to the left side of the image
         rgb[:, :temp_scale_width_px] = temp_scale
         
-        normalized_scale = display_range / 23
-        min_temp_normalized_pos = (display_max_range - min_temp) / normalized_scale
-        max_temp_normalized_pos = (display_max_range - max_temp) / normalized_scale
+        min_temp_normalized_pos = self.temperature_to_scale_normalized(min_temp, display_range, display_max_range)
+        max_temp_normalized_pos = self.temperature_to_scale_normalized(max_temp, display_range, display_max_range)
         
         min_temp_position = self.input_pixel_to_output_pixel(x=0, y=min_temp_normalized_pos)
         max_temp_position = self.input_pixel_to_output_pixel(x=0, y=max_temp_normalized_pos)
@@ -397,10 +406,33 @@ class IRCamApp(tk.Tk):
         if self.show_scale_ticks:
             #Find the nearest decade to the temperatue range
             decade = 10 ** int(np.log10(display_range))
-            #Find the number of ticks
-            num_ticks = int(display_range / decade)
-            #Find the tick spacing
-                
+            
+            #Floor the min display range to the nearest decade
+            display_min_tick = np.floor(display_min_range / decade) * decade
+            
+            #Ceil the max display range to the nearest decade
+            display_max_tick = np.ceil(display_max_range / decade) * decade
+
+            #make a range of ticks from min to max with decade spacing
+            num_ticks = int((display_max_tick - display_min_tick) / decade)
+            tick_temperatures = np.linspace(display_min_tick, display_max_tick, num_ticks+1)
+             
+            #Find the tick temperature locations normalized to the temperature input scale 0-1
+#            tick_temperatures_normalized = self.normalize_temperature_data(tick_temperatures, display_min_range, display_max_range)
+                        
+            # Convert temperature input scale to display output scale
+            tick_scale_positions = self.temperature_to_scale_normalized(tick_temperatures, display_range, display_max_range)
+
+            #Convert the display scale positions to pixel positions
+            # tick_scale_positions = [self.input_pixel_to_output_pixel(x=0, y=pos) for pos in tick_scale_positions]
+            tick_positions_px = self.input_pixels_to_output_pixels(tick_scale_positions)
+                        
+            #Draw the ticks on the image
+            for tick_position, tick_temperature in zip(tick_positions_px, tick_temperatures):
+                cv.line(rgb, (0, tick_position), (temp_scale_width_px, tick_position), (255, 255, 255), 3)
+                cv.putText(rgb, "%.2f" % tick_temperature, (text_xpos+10, tick_position), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+                cv.putText(rgb, "%.2f" % tick_temperature, (text_xpos+10, tick_position), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+
         
         if self.show_help:
             #draw help table on the image
