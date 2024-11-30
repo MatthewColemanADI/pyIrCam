@@ -225,7 +225,7 @@ class IRCamApp(tk.Tk):
         self.contour_tolerance_label = tk.Label(self, text="Contour Tolerance %")
         self.contour_tolerance_label.grid(row=row, column=0, padx=padx, pady=pady)
         self.contour_tolerance_var = tk.DoubleVar()
-        self.contour_tolerance_var.set(5)
+        self.contour_tolerance_var.set(3)
         self.contour_tolerance_entry = tk.Entry(self, textvariable=self.contour_tolerance_var, validate = 'key', validatecommand = vcmd)
         self.contour_tolerance_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
@@ -330,6 +330,12 @@ class IRCamApp(tk.Tk):
         display_scale_temp = (display_max_range - normalized_temp) / normalized_scale
         return display_scale_temp
     
+    def draw_hotspot(self, position, rgb, fg=(255, 255, 255), bg=(0, 0, 0)):
+        xres = rgb.shape[1]
+        circle_size = int(xres*0.005) + 4
+        cv.circle(rgb, position, circle_size, bg, 4)
+        cv.circle(rgb, position, circle_size, fg, 2)
+    
     def _display_data(self, data):
         try:
             data = data.reshape(24, 32)            
@@ -402,11 +408,6 @@ class IRCamApp(tk.Tk):
         text_size = 0.5
         text_y_offset = 5
         text_xpos = temp_scale_width_px+10
-        cv.putText(rgb, "%.1f" % max_temp, (text_xpos, max_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-        cv.putText(rgb, "%.1f" % max_temp, (text_xpos, max_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
-
-        cv.putText(rgb, "%.1f" % min_temp, (text_xpos, min_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-        cv.putText(rgb, "%.1f" % min_temp, (text_xpos, min_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
         
         if self.show_scale_ticks:
             #Find the nearest decade to the temperatue range
@@ -443,6 +444,15 @@ class IRCamApp(tk.Tk):
                 cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
                 cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
 
+        self.draw_hotspot(min_temp_position, rgb, fg=(0, 0, 0), bg=(255, 255, 255))
+        self.draw_hotspot(max_temp_position, rgb, fg=(255, 255, 255), bg=(0, 0, 0))
+
+        cv.putText(rgb, "%.1f" % max_temp, (text_xpos, max_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+        cv.putText(rgb, "%.1f" % max_temp, (text_xpos, max_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+
+        cv.putText(rgb, "%.1f" % min_temp, (text_xpos, min_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+        cv.putText(rgb, "%.1f" % min_temp, (text_xpos, min_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+
         
         if self.show_help:
             #draw help table on the image
@@ -457,12 +467,8 @@ class IRCamApp(tk.Tk):
         #add overlay
         if self.overlay:
             #draw min and max pixel circles on the image
-            circle_size = int(self.display_resolution[0]*0.005) + 4
-            cv.circle(rgb, min_pixel_position, circle_size, (0, 0, 0), 2)
-            cv.circle(rgb, max_pixel_position, circle_size, (255, 255, 255), 2)
-            
-            cv.circle(rgb, min_temp_position, circle_size, (0, 0, 0), 2)
-            cv.circle(rgb, max_temp_position, circle_size, (255, 255, 255), 2)
+            self.draw_hotspot(min_pixel_position, rgb, fg=(0, 0, 0), bg=(255, 255, 255))
+            self.draw_hotspot(max_pixel_position, rgb, fg=(255, 255, 255), bg=(0, 0, 0))
 
                         
         if self.show_contours:
