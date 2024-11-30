@@ -61,7 +61,7 @@ class IRCamApp(tk.Tk):
         self.line_counter = -1
         self.show_help = False
         self.debug = False
-        self.filter_noise_threshold = 3
+        self.filter_noise_threshold = 10
         self.loaded_data = None
         self.show_scale_ticks = True
         self.frame = np.zeros((24, 32), dtype=np.float32)
@@ -259,6 +259,8 @@ class IRCamApp(tk.Tk):
         port = self.port_var.get()       
         self.ir_serial_reader = IRSerialReader(port, self.baudrate)
         self.port_button.config(text="Disconnect", command=self.disconnect)
+        self.baudrate_dropdown.config(state="disabled")
+        self.port_dropdown.config(state="disabled")
         self._read_data()
         
     def disconnect(self):
@@ -270,6 +272,8 @@ class IRCamApp(tk.Tk):
             self.ir_serial_reader = None
             cv.destroyAllWindows()
             self.port_button.config(text="Connect", command=self.connect)
+            self.baudrate_dropdown.config(state="readonly")
+            self.port_dropdown.config(state="readonly")
             return
         
         if not self.ir_serial_reader.is_alive():
@@ -396,16 +400,17 @@ class IRCamApp(tk.Tk):
         
         #print min and max temp
         text_size = 0.5
+        text_y_offset = 5
         text_xpos = temp_scale_width_px+10
-        cv.putText(rgb, "%.2f" % max_temp, (text_xpos, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % max_temp, (text_xpos, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+        cv.putText(rgb, "%.1f" % max_temp, (text_xpos, max_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+        cv.putText(rgb, "%.1f" % max_temp, (text_xpos, max_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
 
-        cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+        cv.putText(rgb, "%.1f" % min_temp, (text_xpos, min_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+        cv.putText(rgb, "%.1f" % min_temp, (text_xpos, min_temp_position[1]+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
         
         if self.show_scale_ticks:
             #Find the nearest decade to the temperatue range
-            decade = 10 ** int(np.log10(display_range))
+            decade = 5 ** int(np.log(display_range)/np.log(5))
             
             #Floor the min display range to the nearest decade
             display_min_tick = np.floor(display_min_range / decade) * decade
@@ -426,12 +431,17 @@ class IRCamApp(tk.Tk):
             #Convert the display scale positions to pixel positions
             # tick_scale_positions = [self.input_pixel_to_output_pixel(x=0, y=pos) for pos in tick_scale_positions]
             tick_positions_px = self.input_pixels_to_output_pixels(tick_scale_positions)
-                        
+            
+            if decade < 1:
+                format = "%.1f"
+            else:
+                format = "%.0f"
+            
             #Draw the ticks on the image
             for tick_position, tick_temperature in zip(tick_positions_px, tick_temperatures):
                 cv.line(rgb, (0, tick_position), (temp_scale_width_px, tick_position), (255, 255, 255), 3)
-                cv.putText(rgb, "%.2f" % tick_temperature, (text_xpos+10, tick_position), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-                cv.putText(rgb, "%.2f" % tick_temperature, (text_xpos+10, tick_position), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+                cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
+                cv.putText(rgb, format % tick_temperature, (text_xpos+10, tick_position+text_y_offset), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
 
         
         if self.show_help:
@@ -540,6 +550,7 @@ class IRCamApp(tk.Tk):
         temp_scale = cv.applyColorMap(temp_scale, color_map)
 
         return temp_scale
+    
     
     def draw_contours(self, data, max_temp, min_temp, max_pixel_position, min_pixel_position, rgb):
         temp_range = max_temp - min_temp
