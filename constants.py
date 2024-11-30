@@ -54,7 +54,6 @@ baudrates = [
 ]
 
 help_table = [
-    ["Key", "Function"],
     ["Esc, q", "Exit the program"],
     ["Space, p", "Pause the video"],
     ["M", "Change the color map"],
@@ -63,7 +62,7 @@ help_table = [
     ["D", "Change the display resolution"],
     ["I", "Change the display interpolation"],
     ["T", "Show temperature contours"],
-    ["O", "Show min max points"],
     ["D", "Change the display resolution"],
-    ["B", "Debug mode"],
+    ["B", "Debug temperature contours"],
+    ["k", "Toggle scale tick marks"]
 ]

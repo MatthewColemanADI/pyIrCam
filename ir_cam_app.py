@@ -51,19 +51,18 @@ class IRCamApp(tk.Tk):
         self.geometry()
         self.port = port
         self.color_map_default = color_map
-        self.overlay = True
         self.display_resolution = display_resolutions["640x480"]
         self.unpacker = None
         self.ir_serial_reader = None
         self.baudrate = 460800
-        self.show_contours = False
         self.frame_counter = 0
         self.line_counter = -1
         self.show_help = False
         self.debug = False
         self.filter_noise_threshold = 10
         self.loaded_data = None
-        self.show_scale_ticks = True
+        self.paused = False
+
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
 
@@ -229,6 +228,20 @@ class IRCamApp(tk.Tk):
         self.contour_tolerance_entry = tk.Entry(self, textvariable=self.contour_tolerance_var, validate = 'key', validatecommand = vcmd)
         self.contour_tolerance_entry.grid(row=row, column=1, padx=padx, pady=pady)
         
+        row += 1
+        #show ticks on the temperature scale
+        self.show_scale_ticks_var = tk.BooleanVar()
+        self.show_scale_ticks_checkbox = tk.Checkbutton(self, text="Show Scale Ticks", variable=self.show_scale_ticks_var)
+        self.show_scale_ticks_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
+        self.show_scale_ticks_var.set(True)
+        
+        row += 1
+        
+        #show contours checkbox
+        self.show_contours_var = tk.BooleanVar()
+        self.show_contours_checkbox = tk.Checkbutton(self, text="Show Contours", variable=self.show_contours_var)
+        self.show_contours_checkbox.grid(row=row, column=0, padx=padx, pady=pady)
+        self.show_contours_var.set(False)
                 
         self.update_serial_ports()
         
@@ -409,7 +422,7 @@ class IRCamApp(tk.Tk):
         text_y_offset = 5
         text_xpos = temp_scale_width_px+10
         
-        if self.show_scale_ticks:
+        if self.show_scale_ticks_var.get():
             #Find the nearest decade to the temperatue range
             decade = 5 ** int(np.log(display_range)/np.log(5))
             
@@ -464,14 +477,13 @@ class IRCamApp(tk.Tk):
                 cv.putText(rgb, line[1], (help_x + 100, help_y), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
                 help_y += help_line_height     
         
-        #add overlay
-        if self.overlay:
-            #draw min and max pixel circles on the image
-            self.draw_hotspot(min_pixel_position, rgb, fg=(0, 0, 0), bg=(255, 255, 255))
-            self.draw_hotspot(max_pixel_position, rgb, fg=(255, 255, 255), bg=(0, 0, 0))
+
+        #draw min and max pixel circles on the image
+        self.draw_hotspot(min_pixel_position, rgb, fg=(0, 0, 0), bg=(255, 255, 255))
+        self.draw_hotspot(max_pixel_position, rgb, fg=(255, 255, 255), bg=(0, 0, 0))
 
                         
-        if self.show_contours:
+        if self.show_contours_var.get():
             self.draw_contours(data, max_temp, min_temp, max_pixel_position, min_pixel_position, rgb)
         
         if not self.debug:
@@ -517,10 +529,7 @@ class IRCamApp(tk.Tk):
             np.savetxt(data_filepath, data, delimiter=",", fmt="%.2f")
         elif key == ord("p") or key == ord(" ") or key == ord("P"):
             #pause the display
-            cv.waitKey(0)
-        elif key == ord("o") or key == ord("O"):
-            #enable/disable the information overlay
-            self.overlay = not self.overlay
+            self.paused = not self.paused
         elif key == ord("d") or key == ord("D"):
             #cycle through the display sizes/resolutions
             res_keys = list(display_resolutions.keys())
@@ -535,12 +544,14 @@ class IRCamApp(tk.Tk):
             self.color_map_var.set(cmap_keys[cmap_index])
         elif key == ord("t") or key == ord("T"):
             #toggle show temperature contours
-            self.show_contours = not self.show_contours
+            self.show_contours_var.set(not self.show_contours_var.get())
         elif key == ord("h") or key == ord("H"):
             self.show_help = not self.show_help
         elif key == ord("b") or key == ord("B"):
             self.debug = not self.debug
-            
+        elif key == ord("k") or key == ord("K"):
+            self.show_scale_ticks_var.set(not self.show_scale_ticks_var.get())
+        
 
     def make_temp_scale(self, color_map, display_interpolation, temp_scale_size):
         #make the a color temperature scale from 255 to 0
