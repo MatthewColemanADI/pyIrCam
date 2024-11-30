@@ -63,6 +63,7 @@ class IRCamApp(tk.Tk):
         self.debug = False
         self.filter_noise_threshold = 3
         self.loaded_data = None
+        self.show_scale_ticks = True
         self.frame = np.zeros((24, 32), dtype=np.float32)
         self.filter = TemperatureFilter((24, 32))
 
@@ -285,7 +286,8 @@ class IRCamApp(tk.Tk):
     def _process_data(self, data):
         data = np.array(data, dtype=np.float32)
         self._display_data(data)
-        
+    
+    
     def input_pixel_to_output_pixel(self, x, y):
         #convert input pixel to output pixel
         #input pixel is 32x24
@@ -293,7 +295,27 @@ class IRCamApp(tk.Tk):
         output_x = int((x+0.5) * self.display_resolution[0] / 32)
         output_y = int((y+0.5) * self.display_resolution[1] / 24)
         return output_x, output_y
+    
+    def get_display_range(self, min_temp, max_temp):
+        display_min_range = self.display_min_temp_manual_var.get()
+        display_max_range = self.display_max_temp_manual_var.get()
+
+        display_range_headroom = self.display_range_headroom_var.get()
+
+        if self.display_min_temp_autorange_var.get():
+            display_min_range = min_temp - display_range_headroom
+
+        if self.display_max_temp_autorange_var.get():
+            display_max_range = max_temp + display_range_headroom
         
+        display_range = display_max_range - display_min_range
+        return display_range, display_min_range, display_max_range
+
+    
+    def normalize_temperature_data(self, data, min_temp, max_temp):
+        normalized = (data - min_temp) / (max_temp - min_temp)
+        return normalized
+    
     def _display_data(self, data):
         try:
             data = data.reshape(24, 32)            
@@ -319,21 +341,10 @@ class IRCamApp(tk.Tk):
         min_temp = np.min(data)
         max_temp = np.max(data)
         
-        display_min_range = self.display_min_temp_manual_var.get()
-        display_max_range = self.display_max_temp_manual_var.get()
-
-        display_range_headroom = self.display_range_headroom_var.get()
-
-        if self.display_min_temp_autorange_var.get():
-            display_min_range = min_temp - display_range_headroom
-
-        if self.display_max_temp_autorange_var.get():
-            display_max_range = max_temp + display_range_headroom
+        display_range, display_min_range, display_max_range = self.get_display_range(min_temp, max_temp)
         
-        range = display_max_range - display_min_range
-        normalized = (data - display_min_range) / range
+        normalized = self.normalize_temperature_data(data, display_min_range, display_max_range)
 
-        
         #limit the range to 0-1
         normalized = np.clip(normalized, 0, 1)        
         
@@ -367,7 +378,7 @@ class IRCamApp(tk.Tk):
         #add the temperature scale to the left side of the image
         rgb[:, :temp_scale_width_px] = temp_scale
         
-        normalized_scale = range / 23
+        normalized_scale = display_range / 23
         min_temp_normalized_pos = (display_max_range - min_temp) / normalized_scale
         max_temp_normalized_pos = (display_max_range - max_temp) / normalized_scale
         
@@ -381,7 +392,15 @@ class IRCamApp(tk.Tk):
         cv.putText(rgb, "%.2f" % max_temp, (text_xpos, max_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
 
         cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (255, 255, 255), 3)
-        cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)        
+        cv.putText(rgb, "%.2f" % min_temp, (text_xpos, min_temp_position[1]), cv.FONT_HERSHEY_SIMPLEX, text_size, (0, 0, 0), 2)
+        
+        if self.show_scale_ticks:
+            #Find the nearest decade to the temperatue range
+            decade = 10 ** int(np.log10(display_range))
+            #Find the number of ticks
+            num_ticks = int(display_range / decade)
+            #Find the tick spacing
+                
         
         if self.show_help:
             #draw help table on the image
